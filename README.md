@@ -4,8 +4,11 @@ Dead simple X11 bar for use with scripts in a loop
 
 # Compile
 
-`make -j8` where 8 is your CPU cores.
+```
+make -j8` where 8 is your CPU cores.
+
 sudo make install
+```
 
 # Usage
 
