@@ -1,5 +1,5 @@
 /*
-Copyright 008/02/2024 https://github.com/su8
+Copyright 08/02/2024 https://github.com/su8/doomy
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation; either version 2 of the License, or
@@ -51,7 +51,7 @@ int main(void) {
   display = XOpenDisplay(NULL);
   if (NULL == display) 
   {
-	puts("Cannot open X display.");
+    puts("Cannot open X display.");
     exit(EXIT_FAILURE);
   }
 
@@ -69,7 +69,7 @@ int main(void) {
     DefaultDepth(display, screen), CopyFromParent, visual,
     CWOverrideRedirect | CWBackPixmap | CWEventMask, &wa
   );
-    XSelectInput(display, win, StructureNotifyMask);
+  XSelectInput(display, win, StructureNotifyMask);
 
   Atom wm_delete_window = XInternAtom(display, "WM_DELETE_WINDOW", 0);
   XSetWMProtocols(display, win, &wm_delete_window, 1);
@@ -95,9 +95,9 @@ int main(void) {
         if ((event.xclient.message_type == XInternAtom(display, "WM_PROTOCOLS", 1)) && ((Atom)event.xclient.data.l[0] == XInternAtom(display, "WM_DELETE_WINDOW", 1)))
         {
           keep_running = 0;
-		}
-    }
-	break;
+        }
+      }
+      break;
 
     default:
       break;
