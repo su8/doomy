@@ -16,5 +16,6 @@ sudo make install
 while true; do
 # Your script must use "echo -en" in order to work properly
   ./script.sh # this is your shell script
+  sleep 5 # sleep for 5 seconds
 done | doomy & # will run in the background
 ```
