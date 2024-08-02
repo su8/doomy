@@ -59,7 +59,7 @@ int main(void) {
   screen = DefaultScreen(display);
   cmap = DefaultColormap(display, screen);
   visual = DefaultVisual(display, screen);
-  Screen = ScreenOfDisplay(display, 0);
+  Screen = ScreenOfDisplay(display, DefaultScreen(display));
 
   wa.override_redirect = 1;
   wa.background_pixmap = ParentRelative;
