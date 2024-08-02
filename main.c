@@ -22,6 +22,7 @@ gcc -Wall -Wextra -O2 -I/usr/include/freetype2 -lX11 -lXft -o doomy doomy.c
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -65,7 +66,7 @@ int main(void) {
   wa.event_mask = ExposureMask|KeyPressMask;
 
   win = XCreateWindow(display, RootWindow(display, screen),
-    0, 0, Screen->width, HEIGHT, 0,
+    0, 0, (unsigned int)Screen->width, HEIGHT, 0,
     DefaultDepth(display, screen), CopyFromParent, visual,
     CWOverrideRedirect | CWBackPixmap | CWEventMask, &wa
   );
@@ -76,18 +77,18 @@ int main(void) {
 
   xdraw = XftDrawCreate(display, win, visual, cmap);
 
-  XftColorAllocName(display, visual, cmap,  "#282a2e",  &brown);
-  XftColorAllocName(display, visual, cmap,  "#b294bb",  &pink);
+  XftColorAllocName(display, visual, cmap,  BG_COLOR,  &brown);
+  XftColorAllocName(display, visual, cmap,  TEXT_COLOR,  &pink);
 
   xftfont = XftFontOpenName(display, screen, use_font);
 
   XMapWindow(display, win);
   XFlush(display);
-  XftDrawRect(xdraw, &brown, 0, 0, Screen->width, HEIGHT);
+  XftDrawRect(xdraw, &brown, 0, 0, (unsigned int)Screen->width, HEIGHT);
 
   while (keep_running)
   {
-    XNextEvent(display,&event); 
+    XNextEvent(display, &event);
     switch(event.type)
     {
       case ClientMessage:
@@ -103,9 +104,9 @@ int main(void) {
       break;
     }
 
-  fgets(buf, 999, stdin);
-  drawString(buf);
-
+    fgets(buf, 999, stdin);
+    drawString(buf);
+    sleep(1);
   }
 
   XftColorFree(display, visual, cmap, &brown);
@@ -122,5 +123,5 @@ int main(void) {
 
 static inline void drawString(const char *str)
 {
-  XftDrawStringUtf8(xdraw, &pink, xftfont, 0, 1 + xftfont->ascent, (const FcChar8 *)str, strlen(str));
+  XftDrawStringUtf8(xdraw, &pink, xftfont, 0, 1 + xftfont->ascent, (const FcChar8 *)str, (int)strlen(str));
 }
