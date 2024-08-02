@@ -5,7 +5,7 @@ Dead simple X11 bar for use with scripts in a loop
 # Compile
 
 ```
-make -j8 #where 8 is your CPU cores.
+make BG_COLOR="#282a2e" TEXT_COLOR=""#b294bb"" -j8 # where 8 are your CPU cores.
 
 sudo make install
 ```
@@ -15,7 +15,7 @@ sudo make install
 ```bash
 while true; do
 # Your script must use "echo -en" in order to work properly
+# doomy sleeps for 1 second every cicle
   ./script.sh # this is your shell script
-  sleep 5 # sleep for 5 seconds
 done | doomy & # will run in the background
 ```
