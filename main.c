@@ -32,7 +32,7 @@ static inline void drawString(const char *);
 
 static XftColor brown, pink;
 static XftFont *xftfont;
-static XftDraw *xdraw;
+static XftDraw *xdraw = NULL;
 
 int main(void)
 {
@@ -94,19 +94,21 @@ int main(void)
   {
     if (!(fp = fopen("/tmp/doomy.txt", "r")))
     {
+      puts("Couldn't find /tmp/doomy.txt, exiting.");
       goto err;
     }
     fscanf(fp, "%[^\n]\n", buf);
     if ((fclose(fp)) == EOF)
     {
+      puts("EOF in fclose(fp), exiting.");
       goto err;
     }
 
     xdraw = XftDrawCreate(display, win, visual, cmap);
     XftDrawRect(xdraw, &brown, 0, 0, (unsigned int)Screen->width, height ? height : 15);
     drawString(buf);
-  
     XFlush(display);
+
     sleep(1);
     XftDrawDestroy(xdraw);
   }
@@ -115,9 +117,15 @@ err:
   XftColorFree(display, visual, cmap, &brown);
   XftColorFree(display, visual, cmap, &pink);
   XftFontClose(display, xftfont);
-  XftDrawDestroy(xdraw);
-  XDestroyWindow(display, win);
-  XCloseDisplay(display);
+  if(xdraw != NULL)
+  {
+    XftDrawDestroy(xdraw);
+  }
+  if (display != NULL)
+  {
+    XDestroyWindow(display, win);
+    XCloseDisplay(display);
+  }
 
   return EXIT_SUCCESS;
 }
