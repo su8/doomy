@@ -1,4 +1,4 @@
 while true;
 do
-  echo -en hello world
-done | doomy
+  uname -a
+done | ./doomy
