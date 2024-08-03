@@ -21,9 +21,10 @@ The script below comes with this repository.
 The program in use in the above picture is from my other project https://github.com/su8/pinky-bar
 
 ```bash
-while true;
-do
-  # some custom scripts must use echo -en `./script2.sh`
-  uname -a
-done | doomy & # will run in the background
+# Top src script to output the desired data and `doomy' to read it from /tmp/doomy.txt
+# filename launchDoomy.sh
+while true; do 
+  script_or_variable.sh > /tmp/doomy.txt
+  sleep 1
+done &
 ```
