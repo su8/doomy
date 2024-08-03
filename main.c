@@ -122,24 +122,19 @@ int main(void)
 
 static inline void drawString(const char *str)
 {
-  /*char foundNewLine = 0;
+  (void)str;
   char buf[1000] = {'\0'};
   char *bufPtr = buf;
-  snprintf(buf, sizeof(buf) - 1, "%s", str);
 
+  snprintf(buf, sizeof(buf) - 1, "%s", str);
   for (; *bufPtr; bufPtr++)
   {
     if (*bufPtr == '\n')
     {
-      foundNewLine = 1;
+      *bufPtr = '\0';
       break;
     }
   }
 
-  if (foundNewLine == 1)
-  {
-    *(--bufPtr) = '\0';
-  }*/
-
-  XftDrawStringUtf8(xdraw, &pink, xftfont, 0, 1 + xftfont->ascent, (const FcChar8 *)str, (int)strlen(str));
+  XftDrawStringUtf8(xdraw, &pink, xftfont, 0, 1 + xftfont->ascent, (const FcChar8 *)buf, (int)strlen(buf));
 }
