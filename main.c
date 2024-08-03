@@ -40,11 +40,10 @@ int main(void)
   Display *display;
   Screen *Screen;
   int screen;
-  XEvent event;
   XSetWindowAttributes wa;
   Colormap cmap;
   Visual *visual;
-  int keep_running = 1;
+  FILE *fp = NULL;
   unsigned int height = (unsigned int)strtoul(BAR_HEIGHT, NULL, 10);
   char buf[1000] = {'\0'};
   const char *use_font = *USE_FONT ? "xft#" USE_FONT : "xft#DejaVu Sans:size=9";
@@ -75,8 +74,6 @@ int main(void)
   Atom wm_delete_window = XInternAtom(display, "WM_DELETE_WINDOW", 0);
   XSetWMProtocols(display, win, &wm_delete_window, 1);
 
-  xdraw = XftDrawCreate(display, win, visual, cmap);
-
   XftColorAllocName(display, visual, cmap,  *BG_COLOR ? BG_COLOR : "#282a2e",  &brown);
   XftColorAllocName(display, visual, cmap,  *TEXT_COLOR ? TEXT_COLOR : "#b294bb",  &pink);
 
@@ -92,32 +89,29 @@ int main(void)
 
   XMapWindow(display, win);
   XFlush(display);
-  XftDrawRect(xdraw, &brown, 0, 0, (unsigned int)Screen->width, height ? height : 15);
 
-  while (keep_running)
+  while (1)
   {
-    XNextEvent(display, &event);
-    switch(event.type)
+    if (!(fp = fopen("/tmp/doomy.txt", "r")))
     {
-      case ClientMessage:
-      {
-        if ((event.xclient.message_type == XInternAtom(display, "WM_PROTOCOLS", 1)) && 
-          ((Atom)event.xclient.data.l[0] == XInternAtom(display, "WM_DELETE_WINDOW", 1)))
-        {
-          keep_running = 0;
-        }
-      }
-      break;
-
-    default:
-      break;
+      goto err;
+    }
+    fscanf(fp, "%[^\n]\n", buf);
+    if ((fclose(fp)) == EOF)
+    {
+      goto err;
     }
 
-    (void)fgets(buf, 999, stdin);
+    xdraw = XftDrawCreate(display, win, visual, cmap);
+    XftDrawRect(xdraw, &brown, 0, 0, (unsigned int)Screen->width, height ? height : 15);
     drawString(buf);
+  
+    XFlush(display);
     sleep(1);
+    XftDrawDestroy(xdraw);
   }
 
+err:
   XftColorFree(display, visual, cmap, &brown);
   XftColorFree(display, visual, cmap, &pink);
   XftFontClose(display, xftfont);
