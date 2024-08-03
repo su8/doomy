@@ -23,6 +23,7 @@ The program in use in the above picture is from my other project https://github.
 ```bash
 while true;
 do
+  # some custom scripts must use echo -en `./script2.sh`
   uname -a
 done | doomy & # will run in the background
 ```
