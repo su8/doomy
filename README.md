@@ -22,9 +22,13 @@ The program in use in the above picture is from my other project https://github.
 
 ```bash
 # Top src script to output the desired data and `doomy' to read it from /tmp/doomy.txt
-# filename launchDoomy.sh
+# filename outputForDoomy.sh
 while true; do 
   script_or_variable.sh > /tmp/doomy.txt
   sleep 1
 done &
+
+# And from the same shell call
+doomy &
+# Enjoy :}
 ```
