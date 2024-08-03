@@ -1,3 +1,5 @@
+[![C/C++ CI](https://github.com/su8/doomy/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/su8/doomy/actions/workflows/c-cpp.yml)
+
 ![](pic1.png)
 
 # doomy
