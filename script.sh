@@ -1,5 +1,4 @@
-while true;
-do
-  # some custom scripts must use echo -en `./script2.sh`
-  uname -a
-done | ./doomy
+while true; do 
+  script_or_variable.sh > /tmp/doomy.txt
+  sleep 1
+done &
