@@ -47,8 +47,8 @@ int main(void)
   Colormap cmap;
   Visual *visual;
   int keep_running = -1;
-  char use_font[] = "xft#" USE_FONT;
   char buf[1000] = {'\0'};
+  const char *use_font = *USE_FONT ? "xft#" USE_FONT : "xft#DejaVu Sans:size=9";
 
   display = XOpenDisplay(NULL);
   if (NULL == display) 
@@ -78,8 +78,8 @@ int main(void)
 
   xdraw = XftDrawCreate(display, win, visual, cmap);
 
-  XftColorAllocName(display, visual, cmap,  BG_COLOR,  &brown);
-  XftColorAllocName(display, visual, cmap,  TEXT_COLOR,  &pink);
+  XftColorAllocName(display, visual, cmap,  *BG_COLOR ? BG_COLOR : "#282a2e",  &brown);
+  XftColorAllocName(display, visual, cmap,  *TEXT_COLOR ? TEXT_COLOR : "#b294bb",  &pink);
 
   xftfont = XftFontOpenXlfd(display, screen, use_font);
   if (!xftfont)
