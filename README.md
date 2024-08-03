@@ -18,6 +18,8 @@ sudo make install
 
 The script below comes with this repository.
 
+The program in use in the above picture is from my other project https://github.com/su8/pinky-bar
+
 ```bash
 while true;
 do
