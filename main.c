@@ -54,7 +54,7 @@ int main(void)
   if (NULL == display) 
   {
     puts("Cannot open X display.");
-    exit(EXIT_FAILURE);
+    return EXIT_FAILURE;
   }
 
   screen = DefaultScreen(display);
