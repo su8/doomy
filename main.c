@@ -28,8 +28,6 @@ gcc -Wall -Wextra -O2 -I/usr/include/freetype2 -lX11 -lXft -o doomy doomy.c
 #include <X11/Xutil.h>
 #include <X11/Xft/Xft.h>
 
-#define HEIGHT 15
-
 static inline void drawString(const char *);
 
 static XftColor brown, pink;
@@ -46,7 +44,8 @@ int main(void)
   XSetWindowAttributes wa;
   Colormap cmap;
   Visual *visual;
-  int keep_running = -1;
+  int keep_running = 1;
+  unsigned int height = (unsigned int)strtoul(BAR_HEIGHT, NULL, 10);
   char buf[1000] = {'\0'};
   const char *use_font = *USE_FONT ? "xft#" USE_FONT : "xft#DejaVu Sans:size=9";
 
@@ -67,7 +66,7 @@ int main(void)
   wa.event_mask = ExposureMask|KeyPressMask;
 
   win = XCreateWindow(display, RootWindow(display, screen),
-    0, 0, (unsigned int)Screen->width, HEIGHT, 0,
+    0, 0, (unsigned int)Screen->width, height ? height : 15, 0,
     DefaultDepth(display, screen), CopyFromParent, visual,
     CWOverrideRedirect | CWBackPixmap | CWEventMask, &wa
   );
@@ -93,7 +92,7 @@ int main(void)
 
   XMapWindow(display, win);
   XFlush(display);
-  XftDrawRect(xdraw, &brown, 0, 0, (unsigned int)Screen->width, HEIGHT);
+  XftDrawRect(xdraw, &brown, 0, 0, (unsigned int)Screen->width, height ? height : 15);
 
   while (keep_running)
   {
