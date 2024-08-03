@@ -19,7 +19,7 @@ PACKAGE=doomy
 PROG=main.c
 
 all:
-	$(CC) -DUSE_FONT=\"'$(USE_FONT)'\" -DTEXT_COLOR=\"'$(TEXT_COLOR)'\" -DBG_COLOR=\"'$(BG_COLOR)'\" $(CFLAGS) $(LDFLAGS) -o $(PACKAGE) $(PROG)
+	$(CC) -DUSE_FONT=\"'$(USE_FONT)'\" -DTEXT_COLOR=\"'$(TEXT_COLOR)'\" -DBG_COLOR=\"'$(BG_COLOR)'\" -DBAR_HEIGHT=\"'$(BAR_HEIGHT)'\" $(CFLAGS) $(LDFLAGS) -o $(PACKAGE) $(PROG)
 
 install: 
 	install -D -s -m 755 $(PACKAGE) /usr/bin/$(PACKAGE)
