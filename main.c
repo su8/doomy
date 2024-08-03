@@ -81,7 +81,15 @@ int main(void)
   XftColorAllocName(display, visual, cmap,  BG_COLOR,  &brown);
   XftColorAllocName(display, visual, cmap,  TEXT_COLOR,  &pink);
 
-  xftfont = XftFontOpenName(display, screen, use_font);
+  xftfont = XftFontOpenXlfd(display, screen, use_font);
+  if (!xftfont)
+  {
+    xftfont = XftFontOpenName(display, screen, use_font);
+    if (!xftfont)
+    {
+      return EXIT_FAILURE;
+    }
+  }
 
   XMapWindow(display, win);
   XFlush(display);
