@@ -36,7 +36,8 @@ static XftColor brown, pink;
 static XftFont *xftfont;
 static XftDraw *xdraw;
 
-int main(void) {
+int main(void)
+{
   Window win;
   Display *display;
   Screen *Screen;
@@ -46,7 +47,7 @@ int main(void) {
   Colormap cmap;
   Visual *visual;
   int keep_running = -1;
-  char use_font[] = "xft#DejaVu Sans:size=9";
+  char use_font[] = "xft#" USE_FONT;
   char buf[1000] = {'\0'};
 
   display = XOpenDisplay(NULL);
@@ -111,10 +112,8 @@ int main(void) {
 
   XftColorFree(display, visual, cmap, &brown);
   XftColorFree(display, visual, cmap, &pink);
-
   XftFontClose(display, xftfont);
   XftDrawDestroy(xdraw);
-
   XDestroyWindow(display, win);
   XCloseDisplay(display);
 
@@ -123,5 +122,24 @@ int main(void) {
 
 static inline void drawString(const char *str)
 {
+  /*char foundNewLine = 0;
+  char buf[1000] = {'\0'};
+  char *bufPtr = buf;
+  snprintf(buf, sizeof(buf) - 1, "%s", str);
+
+  for (; *bufPtr; bufPtr++)
+  {
+    if (*bufPtr == '\n')
+    {
+      foundNewLine = 1;
+      break;
+    }
+  }
+
+  if (foundNewLine == 1)
+  {
+    *(--bufPtr) = '\0';
+  }*/
+
   XftDrawStringUtf8(xdraw, &pink, xftfont, 0, 1 + xftfont->ascent, (const FcChar8 *)str, (int)strlen(str));
 }
