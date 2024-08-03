@@ -14,4 +14,4 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: make -j8
-      run: make -8
+      run: make -j8
