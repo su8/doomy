@@ -94,7 +94,8 @@ int main(void)
     {
       case ClientMessage:
       {
-        if ((event.xclient.message_type == XInternAtom(display, "WM_PROTOCOLS", 1)) && ((Atom)event.xclient.data.l[0] == XInternAtom(display, "WM_DELETE_WINDOW", 1)))
+        if ((event.xclient.message_type == XInternAtom(display, "WM_PROTOCOLS", 1)) && 
+          ((Atom)event.xclient.data.l[0] == XInternAtom(display, "WM_DELETE_WINDOW", 1)))
         {
           keep_running = 0;
         }
@@ -105,7 +106,7 @@ int main(void)
       break;
     }
 
-    fgets(buf, 999, stdin);
+    (void)fgets(buf, 999, stdin);
     drawString(buf);
     sleep(1);
   }
@@ -122,7 +123,6 @@ int main(void)
 
 static inline void drawString(const char *str)
 {
-  (void)str;
   char buf[1000] = {'\0'};
   char *bufPtr = buf;
 
