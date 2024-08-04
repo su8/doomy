@@ -30,7 +30,8 @@ gcc -Wall -Wextra -O2 -I/usr/include/freetype2 -lX11 -lXft -o doomy doomy.c
 
 static inline void drawString(const char *);
 
-static XftColor brown, pink;
+static XftColor brown;
+static XftColor pink;
 static XftFont *xftfont;
 static XftDraw *xdraw = NULL;
 
@@ -46,7 +47,7 @@ int main(void)
   FILE *fp = NULL;
   unsigned int height = (unsigned int)strtoul(BAR_HEIGHT, NULL, 10);
   char buf[1000] = {'\0'};
-  const char *use_font = *USE_FONT ? "xft#" USE_FONT : "xft#DejaVu Sans:size=9";
+  const char *use_font = *USE_FONT ? "xft#" USE_FONT : "xft#DejaVu Sans:size=9:style=bold";
 
   display = XOpenDisplay(NULL);
   if (NULL == display) 
