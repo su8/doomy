@@ -36,4 +36,5 @@ doomy &
 # Requirements
 
 **gcc/clang**
+**argp , on BSD it's called argp-standalone**
 **xorg libraries and headers**
