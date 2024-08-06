@@ -18,8 +18,11 @@ CFLAGS+=-g2 -Wall -Wextra -O2 -I/usr/include/freetype2 -I/usr/X11R6/include -L/u
 PACKAGE=doomy
 PROG=main.c
 
+# used by doomy in the past, since then argp is used
+# -DUSE_FONT=\"'$(USE_FONT)'\" -DTEXT_COLOR=\"'$(TEXT_COLOR)'\" -DBG_COLOR=\"'$(BG_COLOR)'\" -DBAR_HEIGHT=\"'$(BAR_HEIGHT)'\" 
+
 all:
-	$(CC) -DUSE_FONT=\"'$(USE_FONT)'\" -DTEXT_COLOR=\"'$(TEXT_COLOR)'\" -DBG_COLOR=\"'$(BG_COLOR)'\" -DBAR_HEIGHT=\"'$(BAR_HEIGHT)'\" $(CFLAGS) $(LDFLAGS) -o $(PACKAGE) $(PROG)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(PACKAGE) $(PROG)
 
 install: 
 	install -D -s -m 755 $(PACKAGE) /usr/bin/$(PACKAGE)
