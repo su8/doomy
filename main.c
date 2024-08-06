@@ -24,18 +24,72 @@ gcc -Wall -Wextra -O2 -I/usr/include/freetype2 -lX11 -lXft -o doomy doomy.c
 #include <stdlib.h>
 #include <unistd.h>
 
+#include <argp.h>
+
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/Xft/Xft.h>
 
 static inline void drawString(const char *);
+static error_t parse_opt(int , char *, struct argp_state *);
 
 static XftColor brown;
 static XftColor pink;
 static XftFont *xftfont;
 static XftDraw *xdraw = NULL;
 
-int main(void)
+static const char *BG_COLOR    = "";
+static const char *TEXT_COLOR  = "";
+static const char *USE_FONT    = "";
+static unsigned int BAR_HEIGHT = 15;
+
+static char doc[] = "Dead simple x11 bar/statusline program.\v";
+const char *argp_program_version = "1.0";
+const char *argp_program_bug_address = "https://github.com/su8/doomy ";
+static struct argp_option options[] =
+{
+    { .doc = "" },
+    { .name = "bgcolor",   .key = 'b', .arg = "#282a2e", .doc = "Set background color"},
+    { .name = "textcolor", .key = 't', .arg = "#b294bb", .doc = "Set text color"},
+    { .name = "font",      .key = 'f', .arg = "xft#DejaVu Sans:size=9:style=bold", .doc = "Use custom font size and bold type"},
+    { .name = "barheight", .key = 'h', .arg = "15",      .doc = "Set the height of the bar"},
+    { .doc = NULL }
+};
+
+static error_t parse_opt(int key, char *arg, struct argp_state *state)
+{
+  (void)state;
+  switch(key)
+  {
+    case 'b':
+      BG_COLOR = arg;
+      break;
+
+    case 't':
+      TEXT_COLOR = arg;
+      break;
+
+    case 'f':
+      USE_FONT = arg;
+      break;
+
+    case 'h':
+      BAR_HEIGHT = (unsigned int)strtoul(arg, NULL, 10);
+      break;
+
+    default:
+      return ARGP_ERR_UNKNOWN;
+  }
+  return EXIT_SUCCESS;
+}
+
+static const struct argp arg_parser = {
+  .parser = parse_opt,
+  .options = options,
+  .doc = doc
+};
+
+int main(int argc, char *argv[])
 {
   Window win;
   Display *display;
@@ -45,9 +99,10 @@ int main(void)
   Colormap cmap;
   Visual *visual;
   FILE *fp = NULL;
-  unsigned int height = (unsigned int)strtoul(BAR_HEIGHT, NULL, 10);
   char buf[1000] = {'\0'};
-  const char *use_font = *USE_FONT ? "xft#" USE_FONT : "xft#DejaVu Sans:size=9:style=bold";
+  const char *use_font = *USE_FONT ? USE_FONT : "xft#DejaVu Sans:size=9:style=bold";
+
+  argp_parse(&arg_parser, argc, argv, ARGP_IN_ORDER, NULL, NULL);
 
   display = XOpenDisplay(NULL);
   if (NULL == display) 
@@ -66,7 +121,7 @@ int main(void)
   wa.event_mask = ExposureMask|KeyPressMask;
 
   win = XCreateWindow(display, RootWindow(display, screen),
-    0, 0, (unsigned int)Screen->width, height ? height : 15, 0,
+    0, 0, (unsigned int)Screen->width, BAR_HEIGHT ? BAR_HEIGHT : 15, 0,
     DefaultDepth(display, screen), CopyFromParent, visual,
     CWOverrideRedirect | CWBackPixmap | CWEventMask, &wa
   );
@@ -106,7 +161,7 @@ int main(void)
     }
 
     xdraw = XftDrawCreate(display, win, visual, cmap);
-    XftDrawRect(xdraw, &brown, 0, 0, (unsigned int)Screen->width, height ? height : 15);
+    XftDrawRect(xdraw, &brown, 0, 0, (unsigned int)Screen->width, BAR_HEIGHT ? BAR_HEIGHT : 15);
     drawString(buf);
     XFlush(display);
 
