@@ -1,4 +1,4 @@
-![](pic1.png)
+![](https://raw.githubusercontent.com/su8/hellxcb/master/1pic.png)
 
 # doomy
 
