@@ -19,6 +19,8 @@ The script below comes with this repository.
 
 The program in use in the above picture is from my other project https://github.com/su8/pinky-bar
 
+Just add the following in your `.xinitrc`, right before the `case` label to test different WM's
+
 ```bash
 # Top src script to output the desired data and `doomy' to read it from /tmp/doomy.txt
 # filename outputForDoomy.sh
