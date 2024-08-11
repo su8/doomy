@@ -105,7 +105,7 @@ int main(int argc, char *argv[])
   Colormap cmap;
   Visual *visual;
   FILE *fp = NULL;
-  unsigned int showToTop = 0U;
+  unsigned int showToBottom = 0U;
   char buf[1000] = {'\0'};
   const char *use_font = *USE_FONT ? USE_FONT : "xft#DejaVu Sans:size=9:style=bold";
 
@@ -122,14 +122,14 @@ int main(int argc, char *argv[])
   cmap = DefaultColormap(display, screen);
   visual = DefaultVisual(display, screen);
   Screen = ScreenOfDisplay(display, DefaultScreen(display));
-  showToTop = (unsigned int)XDisplayHeight(display, screen) - (unsigned int)BAR_HEIGHT;
+  showToBottom = (unsigned int)Screen->height - (unsigned int)BAR_HEIGHT;
 
   wa.override_redirect = 1;
   wa.background_pixmap = ParentRelative;
   wa.event_mask = ExposureMask|KeyPressMask;
 
   win = XCreateWindow(display, RootWindow(display, screen),
-    0, !TOP_BAR ? showToTop : 0,
+    0, TOP_BAR ? 0 : showToBottom,
     (unsigned int)Screen->width, BAR_HEIGHT ? BAR_HEIGHT : 15U, 0,
     DefaultDepth(display, screen), CopyFromParent, visual,
     CWOverrideRedirect | CWBackPixmap | CWEventMask, &wa
