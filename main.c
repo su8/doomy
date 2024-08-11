@@ -41,7 +41,8 @@ static XftDraw *xdraw = NULL;
 static const char *BG_COLOR    = "";
 static const char *TEXT_COLOR  = "";
 static const char *USE_FONT    = "";
-static unsigned int BAR_HEIGHT = 15;
+static unsigned int BAR_HEIGHT = 18U;
+static unsigned int TOP_BAR = 1U;
 
 static char doc[] = "Dead simple x11 bar/statusline program.\v";
 const char *argp_program_version = "1.0";
@@ -51,6 +52,7 @@ static struct argp_option options[] =
     { .doc = "" },
     { .name = "bgcolor",   .key = 'b', .arg = "#282a2e", .doc = "Set background color"},
     { .name = "textcolor", .key = 't', .arg = "#b294bb", .doc = "Set text color"},
+    { .name = "top",       .key = 's', .arg = "1",        .doc = "Show the program on top == 1, else 0 bottom position"},
     { .name = "font",      .key = 'f', .arg = "xft#DejaVu Sans:size=9:style=bold", .doc = "Use custom font size and bold type"},
     { .name = "barheight", .key = 'h', .arg = "15",      .doc = "Set the height of the bar"},
     { .doc = NULL }
@@ -74,7 +76,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
       break;
 
     case 'h':
-      BAR_HEIGHT = (unsigned int)strtoul(arg, NULL, 10);
+      BAR_HEIGHT = (unsigned int)strtoul(arg, (char **)NULL, 10);
+      break;
+
+    case 's':
+      TOP_BAR = (unsigned int)strtoul(arg, (char **)NULL, 10);
       break;
 
     default:
@@ -99,6 +105,7 @@ int main(int argc, char *argv[])
   Colormap cmap;
   Visual *visual;
   FILE *fp = NULL;
+  unsigned int showToTop = 0U;
   char buf[1000] = {'\0'};
   const char *use_font = *USE_FONT ? USE_FONT : "xft#DejaVu Sans:size=9:style=bold";
 
@@ -115,13 +122,15 @@ int main(int argc, char *argv[])
   cmap = DefaultColormap(display, screen);
   visual = DefaultVisual(display, screen);
   Screen = ScreenOfDisplay(display, DefaultScreen(display));
+  showToTop = (unsigned int)XDisplayHeight(display, screen) - (unsigned int)BAR_HEIGHT;
 
   wa.override_redirect = 1;
   wa.background_pixmap = ParentRelative;
   wa.event_mask = ExposureMask|KeyPressMask;
 
   win = XCreateWindow(display, RootWindow(display, screen),
-    0, 0, (unsigned int)Screen->width, BAR_HEIGHT ? BAR_HEIGHT : 15, 0,
+    0, !TOP_BAR ? showToTop : 0,
+    (unsigned int)Screen->width, BAR_HEIGHT ? BAR_HEIGHT : 15U, 0,
     DefaultDepth(display, screen), CopyFromParent, visual,
     CWOverrideRedirect | CWBackPixmap | CWEventMask, &wa
   );
@@ -161,7 +170,7 @@ int main(int argc, char *argv[])
     }
 
     xdraw = XftDrawCreate(display, win, visual, cmap);
-    XftDrawRect(xdraw, &brown, 0, 0, (unsigned int)Screen->width, BAR_HEIGHT ? BAR_HEIGHT : 15);
+    XftDrawRect(xdraw, &brown, 0, 0, (unsigned int)Screen->width, BAR_HEIGHT ? BAR_HEIGHT : 15U);
     drawString(buf);
     XFlush(display);
 
