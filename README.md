@@ -7,6 +7,7 @@ Dead simple X11 bar for use with scripts in a loop
 # Compile
 
 ```makefile
+# if on BSD: mv Makefile Make.old && cp -r Make.bsd Makefile
 make -j8 # where 8 are CPU cores.
 sudo make install
 
@@ -39,5 +40,7 @@ doomy &
 gcc/clang
 
 argp , on BSD it's called argp-standalone
+
+libXft
 
 xorg libraries and headers
