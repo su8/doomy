@@ -22,7 +22,7 @@ PROG=main.c
 # -DUSE_FONT=\"'$(USE_FONT)'\" -DTEXT_COLOR=\"'$(TEXT_COLOR)'\" -DBG_COLOR=\"'$(BG_COLOR)'\" -DBAR_HEIGHT=\"'$(BAR_HEIGHT)'\" 
 
 all:
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(PACKAGE) $(PROG)
+	$(CC) -o $(PACKAGE) $(PROG) $(CFLAGS) $(LDFLAGS)
 
 install: 
 	install -D -s -m 755 $(PACKAGE) /usr/bin/$(PACKAGE)
