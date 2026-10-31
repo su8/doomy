@@ -41,6 +41,10 @@ static error_t parse_opt(int , char *, struct argp_state *);
 
 static XftColor brown;
 static XftColor pink;
+static XftColor redColor;
+static XftColor greenColor;
+static XftColor blueColor;
+static XftColor yellowColor;
 static XftFont *xftfont;
 static XftDraw *xdraw = NULL;
 static const char *BG_COLOR = "";
@@ -184,7 +188,10 @@ int main(int argc, char *argv[])
 
   XftColorAllocName(display, visual, cmap, *BG_COLOR ? BG_COLOR : "#282a2e", &brown);
   XftColorAllocName(display, visual, cmap, *TEXT_COLOR ? TEXT_COLOR : "#b294bb", &pink);
-
+  XftColorAllocName(display, visual, cmap, "#ff5555", &redColor);
+  XftColorAllocName(display, visual, cmap, "#50fa7b", &greenColor);
+  XftColorAllocName(display, visual, cmap, "#8be9fd", &blueColor);
+  XftColorAllocName(display, visual, cmap, "#f1fa8c", &yellowColor);
   xftfont = XftFontOpenXlfd(display, screen, use_font);
   if (!xftfont)
   {
@@ -222,6 +229,10 @@ int main(int argc, char *argv[])
 err:
   XftColorFree(display, visual, cmap, &brown);
   XftColorFree(display, visual, cmap, &pink);
+  XftColorFree(display, visual, cmap, &redColor);
+  XftColorFree(display, visual, cmap, &greenColor);
+  XftColorFree(display, visual, cmap, &blueColor);
+  XftColorFree(display, visual, cmap, &yellowColor);
   XftFontClose(display, xftfont);
   if(xdraw != NULL)
   {
@@ -307,16 +318,56 @@ static void drawBackground(Display *display, Window win, Visual *visual, unsigne
 
 static inline void drawString(const char *str)
 {
-  char buf[1000] = {'\0'};
-  char *bufPtr = buf;
-  snprintf(buf, sizeof(buf) - 1, "%s", str);
-  for (; *bufPtr; bufPtr++)
-  {
-    if (*bufPtr == '\n')
+  int x = 0;
+  XftColor *current = &pink;
+  XGlyphInfo extents;
+  while (*str) {
+    if (!strncmp(str, "[red]", 5))
     {
-      *bufPtr = '\0';
-      break;
+      current = &redColor;
+      str += 5;
+      continue;
     }
+    if (!strncmp(str, "[green]", 7))
+    {
+      current = &greenColor;
+      str += 7;
+      continue;
+    }
+    if (!strncmp(str, "[blue]", 6))
+    {
+      current = &blueColor;
+      str += 6;
+      continue;
+    }
+    if (!strncmp(str, "[yellow]", 8))
+    {
+      current = &yellowColor;
+      str += 8;
+      continue;
+    }
+    if (!strncmp(str, "[/]", 3))
+    {
+      current = &pink;
+      str += 3;
+      continue;
+    }
+    char segment[256];
+    int i = 0;
+    while (*str &&
+               strncmp(str, "[red]", 5) &&
+               strncmp(str, "[green]", 7) &&
+               strncmp(str, "[blue]", 6) &&
+               strncmp(str, "[yellow]", 8) &&
+               strncmp(str, "[/]", 3))
+    {
+      segment[i++] = *str++;
+      if (i >= 255) break;
+    }
+    segment[i] = '\0';
+
+    XftTextExtentsUtf8(XftDrawDisplay(xdraw), xftfont, (FcChar8 *)segment, strlen(segment), &extents);
+    XftDrawStringUtf8(xdraw, current, xftfont, x, 1 + xftfont->ascent, (FcChar8 *)segment, strlen(segment));
+    x += extents.xOff;
   }
-  XftDrawStringUtf8(xdraw, &pink, xftfont, 0, 1 + xftfont->ascent, (const FcChar8 *)buf, (int)strlen(buf));
 }
