@@ -1,4 +1,4 @@
-f="${XDG_RUNTIME_DIR:-$HOME/.cache}/doomy.txt"
+f="${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}}/doomy.txt"
 script_or_variable.sh > "$f" # once now, so doomy finds the file when it starts
 while true; do
   # mv swaps in the whole file at once, so doomy never reads it empty or half written

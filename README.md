@@ -39,7 +39,7 @@ sudo make uninstall   # to remove it
 Put these lines in `~/.xinitrc`, before the line that starts your window manager:
 
 ```sh
-f="${XDG_RUNTIME_DIR:-$HOME/.cache}/doomy.txt"
+f="${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}}/doomy.txt"
 your_script.sh > "$f"   # once now, so doomy finds the file when it starts
 while true; do
   # mv swaps in the whole file at once, so doomy never reads it empty or half written
@@ -53,7 +53,7 @@ doomy &
 
 ## Usage
 
-doomy reads the first line of `$XDG_RUNTIME_DIR/doomy.txt`, a folder only you can write to (`~/.cache/doomy.txt` when it is not set).
+doomy reads the first line of `$XDG_RUNTIME_DIR/doomy.txt`, a folder only you can write to (`$XDG_CACHE_HOME/doomy.txt`, or `~/.cache/doomy.txt`, when it is not set).
 
 - The bar is as high as the text (about 17 pixels with `Sans 9`) and as wide as the screen.
 - An empty file gives an empty bar.
@@ -72,7 +72,7 @@ The font, the text colour and everything else come from the markup. doomy exits 
 The line is [Pango markup](https://docs.gtk.org/Pango/pango_markup.html): colours, fonts, sizes, bold and more, for any part of the text. Without markup it is `Sans 9` in `#b294bb`:
 
 ```sh
-echo 'Hello <span foreground="red">World</span> <span font="Hack 12">big</span> <b>bold</b>' > "${XDG_RUNTIME_DIR:-$HOME/.cache}/doomy.txt"
+echo 'Hello <span foreground="red">World</span> <span font="Hack 12">big</span> <b>bold</b>' > "${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}}/doomy.txt"
 ```
 
 Write `&amp;`, `&lt;` and `&gt;` for `&`, `<` and `>`. When the markup is broken, the bar shows what is wrong with it.
@@ -80,7 +80,7 @@ Write `&amp;`, `&lt;` and `&gt;` for `&`, `<` and `>`. When the markup is broken
 One font and size for the whole bar, with some room above and below the text:
 
 ```sh
-echo '<span font="Hack 10" line_height="1.4">Battery: 10%</span>' > "${XDG_RUNTIME_DIR:-$HOME/.cache}/doomy.txt"
+echo '<span font="Hack 10" line_height="1.4">Battery: 10%</span>' > "${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}}/doomy.txt"
 ```
 
 ### Left, centre and right
@@ -99,8 +99,8 @@ Tabs split the line: the text after the first tab is centred in the bar, the tex
 The last one is a common slip: with one tab, the text goes to the centre. Use two tabs for left and right only.
 
 ```sh
-printf 'Battery: 10%%\t5:30pm\tMonday\n' > "${XDG_RUNTIME_DIR:-$HOME/.cache}/doomy.txt"   # left, centre, right
-printf 'Battery: 10%%\t\tMonday\n' > "${XDG_RUNTIME_DIR:-$HOME/.cache}/doomy.txt"         # left and right
+printf 'Battery: 10%%\t5:30pm\tMonday\n' > "${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}}/doomy.txt"   # left, centre, right
+printf 'Battery: 10%%\t\tMonday\n' > "${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}}/doomy.txt"         # left and right
 ```
 
 ### Emojis
@@ -108,7 +108,7 @@ printf 'Battery: 10%%\t\tMonday\n' > "${XDG_RUNTIME_DIR:-$HOME/.cache}/doomy.txt
 Characters the font does not have, such as emojis or Chinese, are drawn with an installed font that has them, colour emoji fonts included:
 
 ```sh
-echo '🔋 85% 🎵 music 🌡 45°C' > "${XDG_RUNTIME_DIR:-$HOME/.cache}/doomy.txt"
+echo '🔋 85% 🎵 music 🌡 45°C' > "${XDG_RUNTIME_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}}/doomy.txt"
 ```
 
 ### Transparency
