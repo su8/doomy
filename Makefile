@@ -14,18 +14,23 @@
 #   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
 #   MA 02110-1301, USA.
 
-CPPFLAGS+=-I/usr/include/freetype2 -I/usr/X11R6/include -I/usr/include/X11
-LDFLAGS+=-L/usr/X11R6/lib
-LDLIBS+=-lX11 -lXft -lXrender -lfontconfig
+# != runs a command; GNU make (4.0 or newer) and BSD make both know it
+PKGS=x11 cairo-xlib pangocairo glib-2.0
+DEPS_CFLAGS!=pkg-config --cflags $(PKGS)
+DEPS_LIBS!=pkg-config --libs $(PKGS)
+CPPFLAGS+=$(DEPS_CFLAGS)
+LDLIBS+=$(DEPS_LIBS)
 CFLAGS+=-g2 -Wall -Wextra -O2 -std=c99 -pipe -pedantic -Wundef -Wshadow -W -Wwrite-strings -Wcast-align -Wstrict-overflow=5 -Wconversion -Wpointer-arith -Wstrict-prototypes -Wformat=2 -Wsign-compare -Wendif-labels -Wredundant-decls -Winit-self
+PREFIX?=/usr/local
 PACKAGE=doomy
 PROG=main.c
 
 all:
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o $(PACKAGE) $(PROG) $(LDFLAGS) $(LDLIBS)
 
-install: 
-	install -D -s -m 755 $(PACKAGE) /usr/bin/$(PACKAGE)
+install:
+	install -d $(DESTDIR)$(PREFIX)/bin
+	install -s -m 755 $(PACKAGE) $(DESTDIR)$(PREFIX)/bin/$(PACKAGE)
 
 check: all
 	sh tests/smoke.sh ./$(PACKAGE)
@@ -34,6 +39,6 @@ clean:
 	rm -f $(PACKAGE)
 
 uninstall:
-	rm -f /usr/bin/$(PACKAGE)
+	rm -f $(DESTDIR)$(PREFIX)/bin/$(PACKAGE)
 
 .PHONY: all install check clean uninstall
