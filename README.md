@@ -8,38 +8,38 @@ The bar in the picture above runs on [hellxcb](https://github.com/su8/hellxcb), 
 
 ## Dependencies
 
-A C compiler, `make`, `libX11`, `libXft`, `libXrender`, `fontconfig` and `argp` (part of glibc; `argp-standalone` on BSD).
+A C compiler, `make`, `pkg-config`, `libX11`, `cairo`, `pango` (1.50 or newer) and `glib`, which comes with pango.
 
 Debian:
 
 ```sh
-apt install gcc make libx11-dev libxft-dev libxrender-dev libfontconfig-dev
+apt install gcc make pkg-config libx11-dev libcairo2-dev libpango1.0-dev
 ```
 
 Fedora:
 
 ```sh
-dnf install gcc make libX11-devel libXft-devel libXrender-devel fontconfig-devel
+dnf install gcc make pkgconf libX11-devel cairo-devel pango-devel
 ```
 
 FreeBSD:
 
 ```sh
-pkg install argp-standalone libXft pkgconf
+pkg install pkgconf libX11 cairo pango
 ```
 
 ## Installation
 
 ```sh
-make                  # on BSD: make -f Make.bsd
-sudo make install     # to /usr/bin
+make                  # the same Makefile on Linux and BSD
+sudo make install     # to /usr/local/bin; PREFIX=/usr and DESTDIR=... work too
 sudo make uninstall   # to remove it
 ```
 
 Put these lines in `~/.xinitrc`, before the line that starts your window manager:
 
 ```sh
-f="${XDG_RUNTIME_DIR:-/tmp}/doomy.txt"
+f="${XDG_RUNTIME_DIR:-$HOME/.cache}/doomy.txt"
 your_script.sh > "$f"   # once now, so doomy finds the file when it starts
 while true; do
   # mv swaps in the whole file at once, so doomy never reads it empty or half written
@@ -53,63 +53,71 @@ doomy &
 
 ## Usage
 
-doomy reads the first line of `$XDG_RUNTIME_DIR/doomy.txt`, a folder only you can write to (`/tmp/doomy.txt` when it is not set).
+doomy reads the first line of `$XDG_RUNTIME_DIR/doomy.txt`, a folder only you can write to (`~/.cache/doomy.txt` when it is not set).
 
+- The bar is as high as the text (about 17 pixels with `Sans 9`) and as wide as the screen.
 - An empty file gives an empty bar.
-- A line longer than 999 bytes is cut off.
 - Deleting the file stops doomy.
 
 | Option | Default | What it does |
 |---|---|---|
-| `-b`, `--bgcolor` | `#282a2e` | background colour |
-| `-t`, `--textcolor` | `#b294bb` | text colour |
-| `-f`, `--font` | `DejaVu Sans:size=9:style=bold` | font, e.g. `"Hack:size=10"` |
-| `-h`, `--barheight` | `18` | height of the bar in pixels |
-| `-s`, `--top` | `1` | `1` at the top of the screen, `0` at the bottom |
-| `-a`, `--alpha` | `100` | opacity of the background in percent; the text stays solid |
-| `-m`, `--tmode` | `auto` | how to be transparent, see below |
+| `--background=COLOR` | `#282a2e` | a [Pango colour](https://docs.gtk.org/Pango/method.Color.parse_with_alpha.html): a name like `red`, `#rrggbb`, or `#rrggbbaa` to see through it |
+| `--bottom` | | at the bottom of the screen, not the top |
+| `--help` | | the options |
 
-Colours are names like `red` or `#rrggbb`. doomy exits with a message on one it does not know.
+The font, the text colour and everything else come from the markup. doomy exits with a message on a colour or option it does not know.
 
-### Colours
+### Markup
 
-`[red]`, `[green]`, `[blue]` and `[yellow]` colour the text after them; `[/]` goes back to the text colour:
+The line is [Pango markup](https://docs.gtk.org/Pango/pango_markup.html): colours, fonts, sizes, bold and more, for any part of the text. Without markup it is `Sans 9` in `#b294bb`:
 
 ```sh
-echo '[red]Hello [green]World [blue]Hi [yellow]again [/]plain' > "${XDG_RUNTIME_DIR:-/tmp}/doomy.txt"
+echo 'Hello <span foreground="red">World</span> <span font="Hack 12">big</span> <b>bold</b>' > "${XDG_RUNTIME_DIR:-$HOME/.cache}/doomy.txt"
 ```
 
-### Alignment
+Write `&amp;`, `&lt;` and `&gt;` for `&`, `<` and `>`. When the markup is broken, the bar shows what is wrong with it.
 
-`[left]`, `[center]` and `[right]` put the text after them at the left, in the middle or at the right of the bar.
-Text before the first one goes to the left. A colour carries on past them. Use each one once: a second `[left]` draws over the first.
+One font and size for the whole bar, with some room above and below the text:
 
 ```sh
-echo '[left]Battery: 10%[center]5:30pm[right]Monday' > "${XDG_RUNTIME_DIR:-/tmp}/doomy.txt"
+echo '<span font="Hack 10" line_height="1.4">Battery: 10%</span>' > "${XDG_RUNTIME_DIR:-$HOME/.cache}/doomy.txt"
+```
+
+### Left, centre and right
+
+Tabs split the line: the text after the first tab is centred in the bar, the text after the second is at the right.
+`printf` writes a tab as `\t`; a plain `echo` does not.
+
+| Line | Left | Centre | Right |
+|---|---|---|---|
+| `left\tcentre\tright` | `left` | `centre` | `right` |
+| `left\t\tright` | `left` | | `right` |
+| `\tcentre` | | `centre` | |
+| `\t\tright` | | | `right` |
+| `left\tright` | `left` | `right` | |
+
+The last one is a common slip: with one tab, the text goes to the centre. Use two tabs for left and right only.
+
+```sh
+printf 'Battery: 10%%\t5:30pm\tMonday\n' > "${XDG_RUNTIME_DIR:-$HOME/.cache}/doomy.txt"   # left, centre, right
+printf 'Battery: 10%%\t\tMonday\n' > "${XDG_RUNTIME_DIR:-$HOME/.cache}/doomy.txt"         # left and right
 ```
 
 ### Emojis
 
-Characters the font does not have, such as emojis or Chinese, are drawn with another installed font that has them:
+Characters the font does not have, such as emojis or Chinese, are drawn with an installed font that has them, colour emoji fonts included:
 
 ```sh
-echo '🔋 85% 🎵 music 🌡 45°C' > "${XDG_RUNTIME_DIR:-/tmp}/doomy.txt"
+echo '🔋 85% 🎵 music 🌡 45°C' > "${XDG_RUNTIME_DIR:-$HOME/.cache}/doomy.txt"
 ```
-
-- **Bitmap Noto Color Emoji** (`NotoColorEmoji.ttf`, the usual one): colour emojis. Needs libXft 2.3.5 or newer.
-- **Noto Emoji**: one-colour emojis, in the colour of their tag.
-- **Only the COLRv1 colour emoji font** (`Noto-COLRv1.ttf`, the one Fedora ships): emojis are blank, because libXft cannot draw that format. Install Noto Emoji too.
 
 ### Transparency
 
-With `--alpha` below 100, the background lets the desktop show through. `--tmode` picks how:
-
-- `argb`: real transparency. It needs a compositor such as [picom](https://github.com/yshui/picom) or xcompmgr.
-- `pseudo`: the wallpaper behind the bar, tinted with the background colour. It needs no compositor, but does not show windows behind the bar.
-- `auto` (the default): `argb` when a compositor runs, else `pseudo`.
+A `--background` with alpha lets the windows and the wallpaper behind the bar show through.
+It needs a compositor such as [picom](https://github.com/yshui/picom) or xcompmgr; without one, the see-through part is black.
 
 ```sh
-doomy --alpha 70
+doomy --background '#282a2eb3'   # b3 is 70% opaque
 ```
 
 ### With hellxcb

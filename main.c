@@ -16,511 +16,163 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
 MA 02110-1301, USA.
 */
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <argp.h>
+#include <string.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
-#include <X11/Xft/Xft.h>
-#include <X11/extensions/Xrender.h>
+#include <cairo-xlib.h>
+#include <pango/pangocairo.h>
 
-/* How the background of the bar is made */
-#define TRANSPARENT_NONE   0U /* solid, as it always was */
-#define TRANSPARENT_ARGB   1U /* a 32 bit window with an alpha channel, a compositor (picom, xcompmgr ...) blends it */
-#define TRANSPARENT_PSEUDO 2U /* the wallpaper that is behind the bar, tinted: needs no compositor */
-#define VLA 1000
-
-static int drawString(const char *, int, XftColor **, int);
-static void drawLine(const char *, unsigned int);
-static int hasCompositor(Display *, int);
-static unsigned int pickTransparency(Display *, int, XVisualInfo *);
-static void drawBackground(Display *, Window, Visual *, unsigned int, unsigned int);
-static error_t parse_opt(int , char *, struct argp_state *);
-
-static XftColor brown;
-static XftColor pink;
-static XftColor redColor;
-static XftColor greenColor;
-static XftColor blueColor;
-static XftColor yellowColor;
-static XftFont *xftfont;
-static XftDraw *xdraw = NULL;
-static const char *BG_COLOR = "";
-static const char *TEXT_COLOR = "";
-static const char *USE_FONT = "DejaVu Sans:size=9:style=bold";
-static const char *TMODE = "";
-static unsigned int BAR_HEIGHT = 18U;
-static unsigned int TOP_BAR = 1U;
-static unsigned int ALPHA = 100U;
-static unsigned int tmode = TRANSPARENT_NONE;
-
-static char doc[] = "Dead simple x11 bar/statusline program.\v";
-
-const char *argp_program_version = "1.0";
-const char *argp_program_bug_address = "https://github.com/su8/doomy ";
-
-static struct argp_option options[] =
+struct bar
 {
-  { .doc = "" },
-  { .name = "bgcolor", .key = 'b', .arg = "#282a2e", .doc = "Set background color"},
-  { .name = "textcolor", .key = 't', .arg = "#b294bb", .doc = "Set text color"},
-  { .name = "top", .key = 's', .arg = "1", .doc = "Show the program on top == 1, else 0 bottom position"},
-  { .name = "font", .key = 'f', .arg = "DejaVu Sans:size=9:style=bold", .doc = "Use custom font size and bold type"},
-  { .name = "barheight", .key = 'h', .arg = "18", .doc = "Set the height of the bar"},
-  { .name = "alpha", .key = 'a', .arg = "70", .doc = "Opacity of the background in percent, 100 is solid (the default), 0 is invisible. The text stays solid"},
-  { .name = "tmode", .key = 'm', .arg = "auto", .doc = "How to be transparent: argb (needs a compositor like picom or xcompmgr), pseudo (shows the wallpaper through the bar, no compositor needed), auto picks argb when a compositor runs, else pseudo"},
-  { .doc = NULL }
+  Display *display;
+  Window win;
+  cairo_t *cr;
+  PangoLayout *layout;
+  PangoColor bg;
+  guint16 alpha;
+  gboolean bottom;
+  int height; /* follows the text */
 };
 
-static error_t parse_opt(int key, char *arg, struct argp_state *state)
+/* The bar is as high as the text: the background, then the text, drawn in a group and copied in one go, so it does not flicker */
+static void draw(struct bar *bar, const char *text)
 {
-  switch(key)
+  Display *display = bar->display;
+  int screen = DefaultScreen(display);
+  int height = 0;
+  GError *error = NULL;
+
+  if (pango_parse_markup(text, -1, 0, NULL, NULL, NULL, &error))
   {
-    case 'b':
-      BG_COLOR = arg;
-      break;
-    case 't':
-      TEXT_COLOR = arg;
-      break;
-    case 'f':
-      USE_FONT = arg;
-      break;
-    case 'h':
-      BAR_HEIGHT = (unsigned int)strtoul(arg, (char **)NULL, 10);
-      if (!BAR_HEIGHT)
-      {
-        BAR_HEIGHT = 18U;
-      }
-      break;
-    case 's':
-      TOP_BAR = (unsigned int)strtoul(arg, (char **)NULL, 10);
-      break;
-    case 'a':
-      ALPHA = (unsigned int)strtoul(arg, (char **)NULL, 10);
-      if (ALPHA > 100U)
-      {
-        ALPHA = 100U;
-      }
-      break;
-    case 'm':
-      if (strcmp(arg, "auto") && strcmp(arg, "argb") && strcmp(arg, "pseudo"))
-      {
-        argp_error(state, "--tmode must be auto, argb or pseudo, not '%s'", arg);
-      }
-      TMODE = arg;
-      break;
-    default:
-      return ARGP_ERR_UNKNOWN;
+    pango_layout_set_markup(bar->layout, text, -1);
   }
-  return EXIT_SUCCESS;
-}
+  else
+  {
+    /* show what is wrong where the text would be */
+    pango_layout_set_attributes(bar->layout, NULL);
+    pango_layout_set_text(bar->layout, error->message, -1);
+    g_error_free(error);
+  }
+  pango_layout_get_pixel_size(bar->layout, NULL, &height);
+  if (height != bar->height)
+  {
+    bar->height = height;
+    XMoveResizeWindow(display, bar->win, 0, bar->bottom ? DisplayHeight(display, screen) - height : 0,
+      (unsigned int)DisplayWidth(display, screen), (unsigned int)height);
+    cairo_xlib_surface_set_size(cairo_get_target(bar->cr), DisplayWidth(display, screen), height);
+  }
 
-static const struct argp arg_parser = {
-  .parser = parse_opt,
-  .options = options,
-  .doc = doc
-};
+  cairo_push_group(bar->cr);
+  cairo_set_operator(bar->cr, CAIRO_OPERATOR_SOURCE);
+  cairo_set_source_rgba(bar->cr, bar->bg.red / 65535.0, bar->bg.green / 65535.0, bar->bg.blue / 65535.0, bar->alpha / 65535.0);
+  cairo_paint(bar->cr);
+  cairo_set_operator(bar->cr, CAIRO_OPERATOR_OVER);
+  cairo_set_source_rgb(bar->cr, 0xb2 / 255.0, 0x94 / 255.0, 0xbb / 255.0); /* #b294bb, unless the markup says otherwise */
+  cairo_move_to(bar->cr, 0.0, 0.0);
+  pango_cairo_show_layout(bar->cr, bar->layout);
+  cairo_pop_group_to_source(bar->cr);
+  cairo_set_operator(bar->cr, CAIRO_OPERATOR_SOURCE);
+  cairo_paint(bar->cr);
+  cairo_surface_flush(cairo_get_target(bar->cr));
+  XFlush(display);
+}
 
 int main(int argc, char *argv[])
 {
-  Window win;
-  Display *display;
-  Screen *Screen;
-  int screen;
-  int depth;
-  XSetWindowAttributes wa;
+  struct bar bar = {0};
+  gchar *background = NULL;
+  GOptionEntry entries[] = {
+    {"background", 0, 0, G_OPTION_ARG_STRING, &background,
+      "A Pango colour: a name, #rrggbb, or #rrggbbaa to see through it with a compositor (#282a2e)", "COLOR"},
+    {"bottom", 0, 0, G_OPTION_ARG_NONE, &bar.bottom, "At the bottom of the screen, not the top", NULL},
+    {NULL, 0, 0, G_OPTION_ARG_NONE, NULL, NULL, NULL}
+  };
+  GOptionContext *options = NULL;
+  GError *error = NULL;
+  gchar *path = NULL;
+  gchar *text = NULL;
+  int screen = 0;
+  int width = 0;
   XVisualInfo vinfo;
-  unsigned long valuemask;
-  Colormap cmap;
-  Colormap argbColormap = 0;
-  Visual *visual;
-  FILE *fp = NULL;
-  unsigned int showToBottom = 0U;
-  char buf[VLA] = {'\0'};
-  char path[VLA] = {'\0'};
-  const char *runtimeDir = getenv("XDG_RUNTIME_DIR");
+  XSetWindowAttributes wa = {0};
+  cairo_surface_t *surface = NULL;
+  PangoFontDescription *font = NULL;
+  PangoTabArray *tabs = NULL;
 
-  argp_parse(&arg_parser, argc, argv, ARGP_IN_ORDER, NULL, NULL);
-  /* a folder only this user can write to, unlike /tmp */
-  snprintf(path, sizeof(path), "%s/doomy.txt", runtimeDir && *runtimeDir ? runtimeDir : "/tmp");
+  options = g_option_context_new(NULL);
+  g_option_context_set_summary(options,
+    "Every second, draw the first line of $XDG_RUNTIME_DIR/doomy.txt as a bar.\n"
+    "The line is Pango markup. Tabs split it: left<TAB>centre<TAB>right.");
+  g_option_context_add_main_entries(options, entries, NULL);
+  if (!g_option_context_parse(options, &argc, &argv, &error) || argc > 1)
+  {
+    fprintf(stderr, "doomy: %s, see --help\n", error ? error->message : "takes only options");
+    return EXIT_FAILURE;
+  }
+  g_option_context_free(options);
+  if (!pango_color_parse_with_alpha(&bar.bg, &bar.alpha, background ? background : "#282a2e"))
+  {
+    fprintf(stderr, "doomy: unknown colour '%s', use a name like red, #rrggbb or #rrggbbaa\n", background);
+    return EXIT_FAILURE;
+  }
+  g_free(background);
+  path = g_build_filename(g_get_user_runtime_dir(), "doomy.txt", NULL);
 
-  display = XOpenDisplay(NULL);
-  if (NULL == display)
+  if (!(bar.display = XOpenDisplay(NULL)))
   {
     fputs("doomy: cannot open X display.\n", stderr);
     return EXIT_FAILURE;
   }
-
-  screen = DefaultScreen(display);
-  cmap = DefaultColormap(display, screen);
-  visual = DefaultVisual(display, screen);
-  depth = DefaultDepth(display, screen);
-  Screen = ScreenOfDisplay(display, DefaultScreen(display));
-  showToBottom = (unsigned int)Screen->height - (unsigned int)BAR_HEIGHT;
-  tmode = pickTransparency(display, screen, &vinfo);
-
-  wa.override_redirect = 1;
-  valuemask = CWOverrideRedirect;
-  if (TRANSPARENT_ARGB == tmode)
+  screen = DefaultScreen(bar.display);
+  width = DisplayWidth(bar.display, screen);
+  /* a window with an alpha channel: an opaque colour is solid, one with alpha is see-through when a compositor runs */
+  if (!XMatchVisualInfo(bar.display, screen, 32, TrueColor, &vinfo))
   {
-    /* a window with an alpha channel needs its own visual and colormap, and no parent relative background */
-    visual = vinfo.visual;
-    depth = 32;
-    cmap = XCreateColormap(display, RootWindow(display, screen), visual, AllocNone);
-    argbColormap = cmap;
-    wa.colormap = cmap;
-    wa.border_pixel = 0;
-    wa.background_pixel = 0;
-    valuemask |= CWColormap | CWBorderPixel | CWBackPixel;
-  }
-  else
-  {
-    wa.background_pixmap = ParentRelative;
-    valuemask |= CWBackPixmap;
-  }
-
-  win = XCreateWindow(display, RootWindow(display, screen),
-    0, TOP_BAR ? 0 : (int)showToBottom,
-    (unsigned int)Screen->width, BAR_HEIGHT, 0,
-    depth, (unsigned int)(TRANSPARENT_ARGB == tmode ? InputOutput : CopyFromParent), visual,
-    valuemask, &wa
-  );
-
-  if (!XftColorAllocName(display, visual, cmap, *BG_COLOR ? BG_COLOR : "#282a2e", &brown)
-      || !XftColorAllocName(display, visual, cmap, *TEXT_COLOR ? TEXT_COLOR : "#b294bb", &pink))
-  {
-    fputs("doomy: unknown --bgcolor or --textcolor, use a name like red or #rrggbb\n", stderr);
+    fputs("doomy: the X server has no 32 bit visual.\n", stderr);
     return EXIT_FAILURE;
   }
-  XftColorAllocName(display, visual, cmap, "#ff5555", &redColor);
-  XftColorAllocName(display, visual, cmap, "#50fa7b", &greenColor);
-  XftColorAllocName(display, visual, cmap, "#8be9fd", &blueColor);
-  XftColorAllocName(display, visual, cmap, "#f1fa8c", &yellowColor);
-  xftfont = XftFontOpenXlfd(display, screen, USE_FONT);
-  if (!xftfont)
-  {
-    xftfont = XftFontOpenName(display, screen, USE_FONT);
-    if (!xftfont)
-    {
-      return EXIT_FAILURE;
-    }
-  }
+  wa.override_redirect = True;
+  wa.colormap = XCreateColormap(bar.display, RootWindow(bar.display, screen), vinfo.visual, AllocNone);
+  /* 1 pixel high until draw() knows how high the text is */
+  bar.win = XCreateWindow(bar.display, RootWindow(bar.display, screen), 0, 0, (unsigned int)width, 1U, 0,
+    32, InputOutput, vinfo.visual, CWOverrideRedirect | CWColormap | CWBorderPixel | CWBackPixel, &wa);
+  XMapWindow(bar.display, bar.win);
 
-  XMapWindow(display, win);
-  XFlush(display);
-  xdraw = XftDrawCreate(display, win, visual, cmap);
+  surface = cairo_xlib_surface_create(bar.display, bar.win, vinfo.visual, width, 1);
+  bar.cr = cairo_create(surface);
+  bar.layout = pango_cairo_create_layout(bar.cr);
+  /* the font unless the markup says otherwise; without one fontconfig may pick a serif */
+  font = pango_font_description_from_string("Sans 9");
+  pango_layout_set_font_description(bar.layout, font);
+  pango_font_description_free(font);
+  /* always left to right: a line that starts in Arabic or Hebrew would swap the left and the right part */
+  pango_context_set_base_dir(pango_layout_get_context(bar.layout), PANGO_DIRECTION_LTR);
+  pango_layout_set_auto_dir(bar.layout, FALSE);
+  pango_layout_context_changed(bar.layout);
+  /* left<TAB>centre<TAB>right: the first tab centres the text after it in the bar, the second puts it at the right */
+  tabs = pango_tab_array_new(2, TRUE);
+  pango_tab_array_set_tab(tabs, 0, PANGO_TAB_CENTER, width / 2);
+  pango_tab_array_set_tab(tabs, 1, PANGO_TAB_RIGHT, width);
+  pango_layout_set_tabs(bar.layout, tabs);
+  pango_tab_array_free(tabs);
 
-  while (1)
+  /* deleting the file is how doomy is stopped */
+  while (g_file_get_contents(path, &text, NULL, NULL))
   {
-    if (!(fp = fopen(path, "r")))
-    {
-      fprintf(stderr, "doomy: couldn't find %s, exiting.\n", path);
-      goto err;
-    }
-    if (!fgets(buf, sizeof(buf), fp))
-    {
-      buf[0] = '\0'; /* the script printed nothing: show that, not the last line */
-    }
-    buf[strcspn(buf, "\n")] = '\0';
-    if ((fclose(fp)) == EOF)
-    {
-      fputs("doomy: EOF in fclose(fp), exiting.\n", stderr);
-      goto err;
-    }
-    drawBackground(display, win, visual, (unsigned int)Screen->width, BAR_HEIGHT);
-    drawLine(buf, (unsigned int)Screen->width);
-    XFlush(display);
-    sleep(1);
+    text[strcspn(text, "\n")] = '\0';
+    draw(&bar, text);
+    g_free(text);
+    g_usleep(G_USEC_PER_SEC);
   }
+  fprintf(stderr, "doomy: couldn't read %s, exiting.\n", path);
 
-err:
-  XftColorFree(display, visual, cmap, &brown);
-  XftColorFree(display, visual, cmap, &pink);
-  XftColorFree(display, visual, cmap, &redColor);
-  XftColorFree(display, visual, cmap, &greenColor);
-  XftColorFree(display, visual, cmap, &blueColor);
-  XftColorFree(display, visual, cmap, &yellowColor);
-  XftFontClose(display, xftfont);
-  if (xdraw != NULL)
-  {
-    XftDrawDestroy(xdraw);
-  }
-  XDestroyWindow(display, win);
-  if (argbColormap)
-  {
-    XFreeColormap(display, argbColormap);
-  }
-  XCloseDisplay(display);
+  g_free(path);
+  g_object_unref(bar.layout);
+  cairo_destroy(bar.cr);
+  cairo_surface_destroy(surface);
+  XDestroyWindow(bar.display, bar.win);
+  XFreeColormap(bar.display, wa.colormap);
+  XCloseDisplay(bar.display);
   return EXIT_SUCCESS;
-}
-
-/* A compositing manager (picom, xcompmgr, compton ...) owns the _NET_WM_CM_S<screen> selection */
-static int hasCompositor(Display *display, int screenNumber)
-{
-  char name[32] = {'\0'};
-  snprintf(name, sizeof(name) - 1, "_NET_WM_CM_S%d", screenNumber);
-  return XGetSelectionOwner(display, XInternAtom(display, name, False)) != None;
-}
-
-/* Which of the three kinds of background to use. vinfo gets the 32 bit visual for ARGB */
-static unsigned int pickTransparency(Display *display, int screenNumber, XVisualInfo *vinfo)
-{
-  const char *want = *TMODE ? TMODE : "auto";
-  int compositor = 0;
-  XRenderPictFormat *format = NULL;
-
-  if (ALPHA >= 100U)
-  {
-    return TRANSPARENT_NONE;
-  }
-  compositor = hasCompositor(display, screenNumber);
-  if (strcmp(want, "pseudo") != 0 && (strcmp(want, "argb") == 0 || compositor))
-  {
-    if (XMatchVisualInfo(display, screenNumber, 32, TrueColor, vinfo)
-        && (format = XRenderFindVisualFormat(display, vinfo->visual)) != NULL
-        && format->direct.alphaMask != 0)
-    {
-      if (!compositor)
-      {
-        fputs("doomy: no compositing manager is running, the bar will not be transparent. Start picom or xcompmgr, or use --tmode pseudo\n", stderr);
-      }
-      return TRANSPARENT_ARGB;
-    }
-    if (strcmp(want, "argb") == 0)
-    {
-      fputs("doomy: there is no 32 bit visual with an alpha channel, using pseudo transparency\n", stderr);
-    }
-  }
-  return TRANSPARENT_PSEUDO;
-}
-
-/* The background of the bar. Solid is the old way. For the transparent ones the colour is drawn with XRender,
- * premultiplied by the alpha: ARGB replaces the pixels (Src), pseudo blends the colour over the wallpaper (Over) */
-static void drawBackground(Display *display, Window win, Visual *visual, unsigned int width, unsigned int height)
-{
-  XRenderColor color;
-  XRenderPictFormat *format = NULL;
-  Picture picture;
-
-  if (TRANSPARENT_NONE == tmode || (format = XRenderFindVisualFormat(display, visual)) == NULL)
-  {
-    XftDrawRect(xdraw, &brown, 0, 0, width, height);
-    return;
-  }
-  color.red = (unsigned short)((unsigned int)brown.color.red * ALPHA / 100U);
-  color.green = (unsigned short)((unsigned int)brown.color.green * ALPHA / 100U);
-  color.blue = (unsigned short)((unsigned int)brown.color.blue * ALPHA / 100U);
-  color.alpha = (unsigned short)(65535U * ALPHA / 100U);
-  if (TRANSPARENT_PSEUDO == tmode)
-  {
-    XClearWindow(display, win); /* the parent relative background: the wallpaper that is behind the bar */
-  }
-  picture = XRenderCreatePicture(display, win, format, 0, NULL);
-  XRenderFillRectangle(display, TRANSPARENT_ARGB == tmode ? PictOpSrc : PictOpOver, picture, &color, 0, 0, width, height);
-  XRenderFreePicture(display, picture);
-}
-
-/* The font that has a glyph for ch: the main one, else one that fontconfig finds (emojis, CJK ...), kept for the next time */
-static XftFont *fontFor(Display *display, FcChar32 ch)
-{
-  static XftFont *fallbacks[16] = {NULL};
-  static unsigned int count = 0U;
-  static FcCharSet *misses = NULL;
-  unsigned int i = 0U;
-  double size = 0.0;
-  FcCharSet *charset = NULL;
-  FcPattern *pattern = NULL;
-  FcPattern *match = NULL;
-  FcResult result;
-  XftFont *font = NULL;
-
-  if (XftCharExists(display, xftfont, ch))
-  {
-    return xftfont;
-  }
-  for (i = 0U; i < count; i++)
-  {
-    if (XftCharExists(display, fallbacks[i], ch))
-    {
-      return fallbacks[i];
-    }
-  }
-  /* characters no font has: searching again every second would find nothing again */
-  if (!misses)
-  {
-    misses = FcCharSetCreate();
-  }
-  if (sizeof(fallbacks) / sizeof(*fallbacks) == count || FcCharSetHasChar(misses, ch))
-  {
-    return xftfont;
-  }
-  pattern = FcPatternCreate();
-  charset = FcCharSetCreate();
-  FcCharSetAddChar(charset, ch);
-  FcPatternAddCharSet(pattern, FC_CHARSET, charset);
-  if (FcPatternGetDouble(xftfont->pattern, FC_PIXEL_SIZE, 0, &size) == FcResultMatch)
-  {
-    FcPatternAddDouble(pattern, FC_PIXEL_SIZE, size);
-  }
-  match = XftFontMatch(display, DefaultScreen(display), pattern, &result);
-  FcCharSetDestroy(charset);
-  FcPatternDestroy(pattern);
-  if (match && !(font = XftFontOpenPattern(display, match)))
-  {
-    FcPatternDestroy(match);
-  }
-  if (font && !XftCharExists(display, font, ch))
-  {
-    XftFontClose(display, font);
-    font = NULL;
-  }
-  if (!font)
-  {
-    FcCharSetAddChar(misses, ch);
-    return xftfont;
-  }
-  fallbacks[count++] = font;
-  return font;
-}
-
-static const struct
-{
-  const char *tag;
-  XftColor *color;
-} tags[] = {
-  {"[red]", &redColor},
-  {"[green]", &greenColor},
-  {"[blue]", &blueColor},
-  {"[yellow]", &yellowColor},
-  {"[/]", &pink}
-};
-
-/* The length of the colour tag that str starts with, 0 when there is none. color gets its colour */
-static size_t tagAt(const char *str, XftColor **color)
-{
-  size_t i = 0U;
-  size_t n = 0U;
-  for (i = 0U; i < sizeof(tags) / sizeof(*tags); i++)
-  {
-    n = strlen(tags[i].tag);
-    if (!strncmp(str, tags[i].tag, n))
-    {
-      *color = tags[i].color;
-      return n;
-    }
-  }
-  return 0U;
-}
-
-/* The length of the alignment tag that str starts with, 0 when there is none. align gets 0 left, 1 center, 2 right */
-static size_t alignAt(const char *str, unsigned int *align)
-{
-  static const char *aligns[] = {"[left]", "[center]", "[right]"};
-  unsigned int i = 0U;
-  size_t n = 0U;
-  for (i = 0U; i < sizeof(aligns) / sizeof(*aligns); i++)
-  {
-    n = strlen(aligns[i]);
-    if (!strncmp(str, aligns[i], n))
-    {
-      *align = i;
-      return n;
-    }
-  }
-  return 0U;
-}
-
-/* Draw the line: text after [left] (or before any alignment tag) at the left, after [center] in the middle,
- * after [right] at the right. Each part is measured first, then drawn where it belongs. Colours carry on */
-static void drawLine(const char *line, unsigned int width)
-{
-  char section[VLA] = {'\0'};
-  XftColor *color = &pink;
-  XftColor *start = NULL;
-  unsigned int align = 0U;
-  unsigned int next = 0U;
-  size_t i = 0U;
-  int w = 0;
-  while (1)
-  {
-    for (i = 0U; *line && !alignAt(line, &next) && i < sizeof(section) - 1U; i++)
-    {
-      section[i] = *line++;
-    }
-    section[i] = '\0';
-    start = color;
-    w = drawString(section, 0, &color, 0);
-    color = start;
-    drawString(section, 0U == align ? 0 : 1U == align ? ((int)width - w) / 2 : (int)width - w, &color, 1);
-    if (!*line)
-    {
-      return;
-    }
-    line += alignAt(line, &align);
-  }
-}
-
-/* Draw str from x in *current, or only measure it when draw is 0. Returns its width, *current ends at its last colour */
-static int drawString(const char *str, int x0, XftColor **current, int draw)
-{
-  int x = x0;
-  size_t len = 0U;
-  XftColor *next = NULL;
-  XGlyphInfo extents;
-  while (*str) {
-    if ((len = tagAt(str, current)))
-    {
-      str += len;
-      continue;
-    }
-    char segment[VLA] = {'\0'};
-    int i = 0;
-    while (*str && !tagAt(str, &next))
-    {
-      segment[i++] = *str++;
-      if (i == VLA - 1) break;
-    }
-    segment[i] = '\0';
-    /* split the segment in runs of characters that use the same font, so emojis are drawn with an emoji font */
-    const char *run = segment;
-    const char *p = segment;
-    XftFont *runFont = NULL;
-    while (*p)
-    {
-      FcChar32 ch = 0;
-      XftFont *font = xftfont;
-      int n = FcUtf8ToUcs4((const FcChar8 *)p, &ch, (int)strlen(p));
-      if (n <= 0)
-      {
-        n = 1; /* not valid UTF-8, leave the byte to the main font */
-      }
-      else
-      {
-        font = fontFor(XftDrawDisplay(xdraw), ch);
-      }
-      if (runFont && font != runFont)
-      {
-        XftTextExtentsUtf8(XftDrawDisplay(xdraw), runFont, (const FcChar8 *)run, (int)(p - run), &extents);
-        if (draw)
-        {
-          XftDrawStringUtf8(xdraw, *current, runFont, x, 1 + xftfont->ascent, (const FcChar8 *)run, (int)(p - run));
-        }
-        x += extents.xOff;
-        run = p;
-      }
-      runFont = font;
-      p += n;
-    }
-    if (runFont)
-    {
-      XftTextExtentsUtf8(XftDrawDisplay(xdraw), runFont, (const FcChar8 *)run, (int)(p - run), &extents);
-      if (draw)
-      {
-        XftDrawStringUtf8(xdraw, *current, runFont, x, 1 + xftfont->ascent, (const FcChar8 *)run, (int)(p - run));
-      }
-      x += extents.xOff;
-    }
-  }
-  return x - x0;
 }

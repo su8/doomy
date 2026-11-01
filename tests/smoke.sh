@@ -1,5 +1,5 @@
 #!/bin/sh
-# smoke test: run doomy on a virtual X server, do the things that used to crash it,
+# smoke test: run doomy on a virtual X server with every kind of input and option,
 # and check how it ends. Needs: Xvfb
 set -u
 BIN=${1:-./doomy}
@@ -17,19 +17,29 @@ fail=0
 
 # expect NAME GOT WANT: pass if the two values are equal
 expect() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1 (got $2, want $3)"; fail=1; fi; }
-# alive NAME: write the text in $F, pass if doomy is still drawing it 2 seconds later (timeout's 124)
-alive() { timeout 2 "$BIN" 2>/dev/null; expect "$1" $? 124; }
+# alive NAME [OPTION]...: pass if doomy is still drawing $F 2 seconds later (timeout's 124)
+alive() { name=$1; shift; timeout 2 "$BIN" "$@" 2>/dev/null; expect "$name" $? 124; }
 
-echo '[red]red [green]green [blue]blue [yellow]yellow [/]plain 🔋 日本' > "$F"; alive "colour tags, emojis and CJK"
-echo '[left]Battery: 10%[center][red]5:30pm 🔋[right]Monday[left][center]' > "$F";  alive "alignment tags, also empty and repeated"
-awk 'BEGIN { while (i++ < 5000) printf "x"; print "" }' > "$F";      alive "a line longer than the buffer"
-: > "$F";                                                               alive "an empty file"
+printf '<span foreground="red">red</span> <b>bold</b> <span font="Serif 20">big</span> 🔋 日本\n' > "$F"
+alive "markup, a bigger font, emojis and CJK"
+printf 'Battery: 10%%\t5:30pm 🔋\tMonday\t\textra tabs\n' > "$F";    alive "left, centre and right tabs, and too many"
+printf 'مرحبا\tCCC\tRRR\n' > "$F";                                    alive "a line that starts in Arabic"
+echo 'a <b>broken' > "$F";                                          alive "broken markup shows its error"
+awk 'BEGIN { while (i++ < 5000) printf "x"; print "" }' > "$F";     alive "a long line"
+printf 'first\nsecond\n' > "$F";                                    alive "only the first line"
+: > "$F";                                                           alive "an empty file"
+echo text > "$F"
+alive "see-through background" --background '#282a2e80'
+alive "at the bottom" --bottom --background red
 
-# deleting the file is how doomy is stopped: it used to free its drawing twice and crash
-echo text > "$F"; timeout 5 "$BIN" 2>/dev/null & P=$!; sleep 1.5; rm "$F"; wait $P
+# deleting the file is how doomy is stopped
+timeout 5 "$BIN" 2>/dev/null & P=$!; sleep 1.5; rm "$F"; wait $P
 expect "deleting doomy.txt exits cleanly" $? 0
 
-echo text > "$F"; timeout 2 "$BIN" -b nosuchcolour 2>/dev/null
-expect "an unknown --bgcolor exits with an error" $? 1
+echo text > "$F"
+for bad in "--background nosuch" "-b red" "--alpha 50" "extra"; do
+  timeout 2 "$BIN" $bad 2>/dev/null
+  expect "rejects $bad" $? 1
+done
 
 exit $fail

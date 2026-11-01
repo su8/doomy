@@ -13,8 +13,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: install x11, xft and xvfb
-      run: sudo apt-get update && sudo apt-get install -y libx11-dev libxft-dev libxrender-dev libfontconfig-dev xvfb fonts-dejavu-core
+    - name: install x11, pango, cairo and xvfb
+      run: sudo apt-get update && sudo apt-get install -y libx11-dev libpango1.0-dev libcairo2-dev xvfb fonts-dejavu-core
     - name: make -j8
       run: make -j8
     - name: make check
