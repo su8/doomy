@@ -31,7 +31,8 @@ MA 02110-1301, USA.
 #define TRANSPARENT_PSEUDO 2U /* the wallpaper that is behind the bar, tinted: needs no compositor */
 #define VLA 1000
 
-static inline void drawString(const char *);
+static int drawString(const char *, int, XftColor **, int);
+static void drawLine(const char *, unsigned int);
 static int hasCompositor(Display *, int);
 static unsigned int pickTransparency(Display *, int, XVisualInfo *);
 static void drawBackground(Display *, Window, Visual *, unsigned int, unsigned int);
@@ -228,7 +229,7 @@ int main(int argc, char *argv[])
       goto err;
     }
     drawBackground(display, win, visual, (unsigned int)Screen->width, BAR_HEIGHT);
-    drawString(buf);
+    drawLine(buf, (unsigned int)Screen->width);
     XFlush(display);
     sleep(1);
   }
@@ -412,15 +413,63 @@ static size_t tagAt(const char *str, XftColor **color)
   return 0U;
 }
 
-static inline void drawString(const char *str)
+/* The length of the alignment tag that str starts with, 0 when there is none. align gets 0 left, 1 center, 2 right */
+static size_t alignAt(const char *str, unsigned int *align)
 {
-  int x = 0;
+  static const char *aligns[] = {"[left]", "[center]", "[right]"};
+  unsigned int i = 0U;
+  size_t n = 0U;
+  for (i = 0U; i < sizeof(aligns) / sizeof(*aligns); i++)
+  {
+    n = strlen(aligns[i]);
+    if (!strncmp(str, aligns[i], n))
+    {
+      *align = i;
+      return n;
+    }
+  }
+  return 0U;
+}
+
+/* Draw the line: text after [left] (or before any alignment tag) at the left, after [center] in the middle,
+ * after [right] at the right. Each part is measured first, then drawn where it belongs. Colours carry on */
+static void drawLine(const char *line, unsigned int width)
+{
+  char section[VLA] = {'\0'};
+  XftColor *color = &pink;
+  XftColor *start = NULL;
+  unsigned int align = 0U;
+  unsigned int next = 0U;
+  size_t i = 0U;
+  int w = 0;
+  while (1)
+  {
+    for (i = 0U; *line && !alignAt(line, &next) && i < sizeof(section) - 1U; i++)
+    {
+      section[i] = *line++;
+    }
+    section[i] = '\0';
+    start = color;
+    w = drawString(section, 0, &color, 0);
+    color = start;
+    drawString(section, 0U == align ? 0 : 1U == align ? ((int)width - w) / 2 : (int)width - w, &color, 1);
+    if (!*line)
+    {
+      return;
+    }
+    line += alignAt(line, &align);
+  }
+}
+
+/* Draw str from x in *current, or only measure it when draw is 0. Returns its width, *current ends at its last colour */
+static int drawString(const char *str, int x0, XftColor **current, int draw)
+{
+  int x = x0;
   size_t len = 0U;
-  XftColor *current = &pink;
   XftColor *next = NULL;
   XGlyphInfo extents;
   while (*str) {
-    if ((len = tagAt(str, &current)))
+    if ((len = tagAt(str, current)))
     {
       str += len;
       continue;
@@ -453,7 +502,10 @@ static inline void drawString(const char *str)
       if (runFont && font != runFont)
       {
         XftTextExtentsUtf8(XftDrawDisplay(xdraw), runFont, (const FcChar8 *)run, (int)(p - run), &extents);
-        XftDrawStringUtf8(xdraw, current, runFont, x, 1 + xftfont->ascent, (const FcChar8 *)run, (int)(p - run));
+        if (draw)
+        {
+          XftDrawStringUtf8(xdraw, *current, runFont, x, 1 + xftfont->ascent, (const FcChar8 *)run, (int)(p - run));
+        }
         x += extents.xOff;
         run = p;
       }
@@ -463,8 +515,12 @@ static inline void drawString(const char *str)
     if (runFont)
     {
       XftTextExtentsUtf8(XftDrawDisplay(xdraw), runFont, (const FcChar8 *)run, (int)(p - run), &extents);
-      XftDrawStringUtf8(xdraw, current, runFont, x, 1 + xftfont->ascent, (const FcChar8 *)run, (int)(p - run));
+      if (draw)
+      {
+        XftDrawStringUtf8(xdraw, *current, runFont, x, 1 + xftfont->ascent, (const FcChar8 *)run, (int)(p - run));
+      }
       x += extents.xOff;
     }
   }
+  return x - x0;
 }

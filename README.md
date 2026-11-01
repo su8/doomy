@@ -79,6 +79,15 @@ Colours are names like `red` or `#rrggbb`. doomy exits with a message on one it 
 echo '[red]Hello [green]World [blue]Hi [yellow]again [/]plain' > "${XDG_RUNTIME_DIR:-/tmp}/doomy.txt"
 ```
 
+### Alignment
+
+`[left]`, `[center]` and `[right]` put the text after them at the left, in the middle or at the right of the bar.
+Text before the first one goes to the left. A colour carries on past them. Use each one once: a second `[left]` draws over the first.
+
+```sh
+echo '[left]Battery: 10%[center]5:30pm[right]Monday' > "${XDG_RUNTIME_DIR:-/tmp}/doomy.txt"
+```
+
 ### Emojis
 
 Characters the font does not have, such as emojis or Chinese, are drawn with another installed font that has them:

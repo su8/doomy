@@ -21,6 +21,7 @@ expect() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1 (got $2, 
 alive() { timeout 2 "$BIN" 2>/dev/null; expect "$1" $? 124; }
 
 echo '[red]red [green]green [blue]blue [yellow]yellow [/]plain 🔋 日本' > "$F"; alive "colour tags, emojis and CJK"
+echo '[left]Battery: 10%[center][red]5:30pm 🔋[right]Monday[left][center]' > "$F";  alive "alignment tags, also empty and repeated"
 awk 'BEGIN { while (i++ < 5000) printf "x"; print "" }' > "$F";      alive "a line longer than the buffer"
 : > "$F";                                                               alive "an empty file"
 
