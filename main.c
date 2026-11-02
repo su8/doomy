@@ -27,19 +27,6 @@ MA 02110-1301, USA.
 #include <cairo-xlib.h>
 #include <pango/pangocairo.h>
 
-static void onStart(GMarkupParseContext *context, const gchar *name, const gchar **names, const gchar **values, gpointer data, GError **error);
-static void onEnd(GMarkupParseContext *context, const gchar *name, gpointer data, GError **error);
-static void onText(GMarkupParseContext *context, const gchar *text, gsize len, gpointer data, GError **error);
-static void clearLink(gpointer data);
-static void onExit(GPid pid, gint status, gpointer data);
-static void ownGroup(gpointer data);
-static int indexAt(PangoLayout *layout, int x, int y);
-static gboolean onEvents(gint fd, GIOCondition condition, gpointer data);
-static gchar *readLinks(const char *text, GArray *links, GError **error);
-static void draw(struct bar *bar, const char *text);
-static void onClick(struct bar *bar, guint button, int x, int y);
-static gboolean onTick(gpointer data);
-
 /* A link in the line, <a href="COMMAND" button="N">text</a>: where its text is, in bytes of the text Pango draws */
 struct link
 {
@@ -73,6 +60,19 @@ struct parse
   gsize offset; /* bytes of text so far: Pango's text is the text between the tags */
   GArray *open; /* the links whose </a> is still to come, as indexes into links */
 };
+
+static void onStart(GMarkupParseContext *context, const gchar *name, const gchar **names, const gchar **values, gpointer data, GError **error);
+static void onEnd(GMarkupParseContext *context, const gchar *name, gpointer data, GError **error);
+static void onText(GMarkupParseContext *context, const gchar *text, gsize len, gpointer data, GError **error);
+static void clearLink(gpointer data);
+static void onExit(GPid pid, gint status, gpointer data);
+static void ownGroup(gpointer data);
+static int indexAt(PangoLayout *layout, int x, int y);
+static gboolean onEvents(gint fd, GIOCondition condition, gpointer data);
+static gchar *readLinks(const char *text, GArray *links, GError **error);
+static void draw(struct bar *bar, const char *text);
+static void onClick(struct bar *bar, guint button, int x, int y);
+static gboolean onTick(gpointer data);
 
 static void onStart(GMarkupParseContext *context, const gchar *name, const gchar **names, const gchar **values, gpointer data, GError **error)
 {
