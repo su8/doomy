@@ -142,67 +142,6 @@ static void onText(GMarkupParseContext *context, const gchar *text, gsize len, g
   parse->offset += len;
 }
 
-/* Pango markup with GTK's <a href="COMMAND">text</a> links, and button="N" for other mouse buttons: links gets where each one is, Pango the rest. NULL on bad markup */
-static gchar *readLinks(const char *text, GArray *links, GError **error)
-{
-  static const GMarkupParser parser = {onStart, onEnd, onText, NULL, NULL};
-  struct parse parse = {g_string_new(NULL), links, 0, g_array_new(FALSE, FALSE, sizeof(guint))};
-  gchar *line = g_strconcat("<markup>", text, "</markup>", NULL); /* one root, as Pango reads it */
-  GMarkupParseContext *context = g_markup_parse_context_new(&parser, 0, &parse, NULL);
-  gboolean ok = g_markup_parse_context_parse(context, line, -1, error) && g_markup_parse_context_end_parse(context, error);
-
-  g_markup_parse_context_free(context);
-  g_array_unref(parse.open);
-  g_free(line);
-  return g_string_free(parse.markup, !ok);
-}
-
-/* The bar is as high as the text: the background, then the text, drawn in a group and copied in one go, so it does not flicker */
-static void draw(struct bar *bar, const char *text)
-{
-  Display *display = bar->display;
-  int screen = DefaultScreen(display);
-  int height = 0;
-  gchar *markup = NULL;
-  GError *error = NULL;
-
-  g_array_set_size(bar->links, 0);
-  if ((markup = readLinks(text, bar->links, &error)) && pango_parse_markup(markup, -1, 0, NULL, NULL, NULL, &error))
-  {
-    pango_layout_set_markup(bar->layout, markup, -1);
-  }
-  else
-  {
-    /* show what is wrong where the text would be */
-    g_array_set_size(bar->links, 0);
-    pango_layout_set_attributes(bar->layout, NULL);
-    pango_layout_set_text(bar->layout, error->message, -1);
-    g_error_free(error);
-  }
-  g_free(markup);
-  pango_layout_get_pixel_size(bar->layout, NULL, &height);
-  if (height != bar->height)
-  {
-    bar->height = height;
-    XMoveResizeWindow(display, bar->win, 0, bar->bottom ? DisplayHeight(display, screen) - height : 0,
-      (unsigned int)DisplayWidth(display, screen), (unsigned int)height);
-    cairo_xlib_surface_set_size(cairo_get_target(bar->cr), DisplayWidth(display, screen), height);
-  }
-
-  cairo_push_group(bar->cr);
-  cairo_set_operator(bar->cr, CAIRO_OPERATOR_SOURCE);
-  cairo_set_source_rgba(bar->cr, bar->bg.red / 65535.0, bar->bg.green / 65535.0, bar->bg.blue / 65535.0, bar->alpha / 65535.0);
-  cairo_paint(bar->cr);
-  cairo_set_operator(bar->cr, CAIRO_OPERATOR_OVER);
-  cairo_set_source_rgb(bar->cr, 0xb2 / 255.0, 0x94 / 255.0, 0xbb / 255.0); /* #b294bb, unless the markup says otherwise */
-  cairo_move_to(bar->cr, 0.0, 0.0);
-  pango_cairo_show_layout(bar->cr, bar->layout);
-  cairo_pop_group_to_source(bar->cr);
-  cairo_set_operator(bar->cr, CAIRO_OPERATOR_SOURCE);
-  cairo_paint(bar->cr);
-  cairo_surface_flush(cairo_get_target(bar->cr));
-  XFlush(display);
-}
 
 static void clearLink(gpointer data)
 {
@@ -245,6 +184,89 @@ static int indexAt(PangoLayout *layout, int x, int y)
   return x * PANGO_SCALE < box.x || x * PANGO_SCALE >= box.x + box.width ? -1 : index;
 }
 
+/* Clicks, as soon as they come */
+static gboolean onEvents(gint fd, GIOCondition condition, gpointer data)
+{
+  struct bar *bar = data;
+  XEvent event;
+  (void)fd;
+  (void)condition;
+  while (XPending(bar->display))
+  {
+    XNextEvent(bar->display, &event);
+    if (ButtonPress == event.type)
+    {
+      onClick(bar, event.xbutton.button, event.xbutton.x, event.xbutton.y);
+    }
+  }
+  return G_SOURCE_CONTINUE;
+}
+
+/* Pango markup with GTK's <a href="COMMAND">text</a> links, and button="N" for other mouse buttons: links gets where each one is, Pango the rest. NULL on bad markup */
+static gchar *readLinks(const char *text, GArray *links, GError **error)
+{
+  static const GMarkupParser parser = {onStart, onEnd, onText, NULL, NULL};
+  struct parse parse = {g_string_new(NULL), links, 0, g_array_new(FALSE, FALSE, sizeof(guint))};
+  gchar *line = g_strconcat("<markup>", text, "</markup>", NULL); /* one root, as Pango reads it */
+  GMarkupParseContext *context = g_markup_parse_context_new(&parser, 0, &parse, NULL);
+  gboolean ok = g_markup_parse_context_parse(context, line, -1, error) && g_markup_parse_context_end_parse(context, error);
+
+  g_markup_parse_context_free(context);
+  g_array_unref(parse.open);
+  g_free(line);
+  return g_string_free(parse.markup, !ok);
+}
+
+/* The bar is as high as the text: the background, then the text, drawn in a group and copied in one go, so it does not flicker */
+static void draw(struct bar *bar, const char *text)
+{
+  Display *display = bar->display;
+  int screen = DefaultScreen(display);
+  int height = 0;
+  gchar *markup = NULL;
+  GError *error = NULL;
+
+  g_array_set_size(bar->links, 0);
+  if ((markup = readLinks(text, bar->links, &error)) && pango_parse_markup(markup, -1, 0, NULL, NULL, NULL, &error))
+  {
+    pango_layout_set_markup(bar->layout, markup, -1);
+  }
+  else
+  {
+    /* show what is wrong where the text would be */
+    g_array_set_size(bar->links, 0);
+    pango_layout_set_attributes(bar->layout, NULL);
+    pango_layout_set_text(bar->layout, error ? error->message : "doomy: bad markup", -1);
+    g_clear_error(&error);
+  }
+  g_free(markup);
+  g_clear_error(&error);
+
+  pango_layout_get_pixel_size(bar->layout, NULL, &height);
+  if (height <= 0) height = 1; /* X accepts 0, but then the bar is invisible and unclickable */
+  if (height != bar->height)
+  {
+    bar->height = height;
+    XMoveResizeWindow(display, bar->win, 0, bar->bottom ? DisplayHeight(display, screen) - height : 0,
+      (unsigned int)DisplayWidth(display, screen), (unsigned int)height);
+    cairo_xlib_surface_set_size(cairo_get_target(bar->cr), DisplayWidth(display, screen), height);
+  }
+
+  cairo_push_group(bar->cr);
+  cairo_set_operator(bar->cr, CAIRO_OPERATOR_SOURCE);
+  cairo_set_source_rgba(bar->cr, bar->bg.red / 65535.0, bar->bg.green / 65535.0, bar->bg.blue / 65535.0, bar->alpha / 65535.0);
+  cairo_paint(bar->cr);
+  cairo_set_operator(bar->cr, CAIRO_OPERATOR_OVER);
+  cairo_set_source_rgb(bar->cr, 0xb2 / 255.0, 0x94 / 255.0, 0xbb / 255.0); /* #b294bb, unless the markup says otherwise */
+  cairo_move_to(bar->cr, 0.0, 0.0);
+  pango_cairo_show_layout(bar->cr, bar->layout);
+  cairo_pop_group_to_source(bar->cr);
+  cairo_set_operator(bar->cr, CAIRO_OPERATOR_SOURCE);
+  cairo_paint(bar->cr);
+  cairo_surface_flush(cairo_get_target(bar->cr));
+  XFlush(display);
+}
+
 /* A click on a link with its button runs its command in a shell; a click on it while that still runs closes it,
  * and what it started, like a pop-up */
 static void onClick(struct bar *bar, guint button, int x, int y)
@@ -274,7 +296,9 @@ static void onClick(struct bar *bar, guint button, int x, int y)
   }
   if ((pid = GPOINTER_TO_INT(g_hash_table_lookup(bar->running, link->href))))
   {
+    /* stop the popup, and forget it: its onExit will still run, but the entry is gone */
     kill(-pid, SIGTERM);
+    g_hash_table_remove(bar->running, link->href);
     return;
   }
   argv[2] = link->href;
@@ -291,24 +315,6 @@ static void onClick(struct bar *bar, guint button, int x, int y)
   g_child_watch_add(pid, onExit, popup);
 }
 
-/* Clicks, as soon as they come */
-static gboolean onEvents(gint fd, GIOCondition condition, gpointer data)
-{
-  struct bar *bar = data;
-  XEvent event;
-  (void)fd;
-  (void)condition;
-  while (XPending(bar->display))
-  {
-    XNextEvent(bar->display, &event);
-    if (ButtonPress == event.type)
-    {
-      onClick(bar, event.xbutton.button, event.xbutton.x, event.xbutton.y);
-    }
-  }
-  return G_SOURCE_CONTINUE;
-}
-
 /* Every second: draw the first line of the file. Deleting the file is how doomy is stopped */
 static gboolean onTick(gpointer data)
 {
@@ -320,7 +326,7 @@ static gboolean onTick(gpointer data)
     g_main_loop_quit(bar->loop);
     return G_SOURCE_REMOVE;
   }
-  text[strcspn(text, "\n")] = '\0';
+  text[strcspn(text, "\r\n")] = '\0';   /* handle CRLF files too */
   draw(bar, text);
   g_free(text);
   onEvents(0, G_IO_IN, bar); /* Xlib may have read events while drawing, which the socket no longer shows */
@@ -362,10 +368,11 @@ int main(int argc, char *argv[])
   g_option_context_free(options);
   if (!pango_color_parse_with_alpha(&bar.bg, &bar.alpha, background ? background : "#282a2e"))
   {
-    fprintf(stderr, "doomy: unknown colour '%s', use a name like red, #rrggbb or #rrggbbaa\n", background);
+    fprintf(stderr, "doomy: unknown colour '%s', use a name like red, #rrggbb or #rrggbbaa\n", background ? background : "(default)");
     return EXIT_FAILURE;
   }
   g_free(background);
+  background = NULL;
   bar.path = g_build_filename(g_get_user_runtime_dir(), "doomy.txt", NULL);
 
   if (!(bar.display = XOpenDisplay(NULL)))
@@ -386,6 +393,11 @@ int main(int argc, char *argv[])
   /* 1 pixel high until draw() knows how high the text is */
   bar.win = XCreateWindow(bar.display, RootWindow(bar.display, screen), 0, 0, (unsigned int)width, 1U, 0,
     32, InputOutput, vinfo.visual, CWOverrideRedirect | CWColormap | CWBorderPixel | CWBackPixel, &wa);
+  if (!bar.win)
+  {
+    fputs("doomy: cannot create the window.\n", stderr);
+    return EXIT_FAILURE;
+  }
   XSelectInput(bar.display, bar.win, ButtonPressMask);
   XMapWindow(bar.display, bar.win);
 
