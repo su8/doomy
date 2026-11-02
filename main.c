@@ -26,6 +26,7 @@ MA 02110-1301, USA.
 #include <glib-unix.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/Xatom.h>
 #include <cairo-xlib.h>
 #include <pango/pangocairo.h>
 
@@ -72,6 +73,7 @@ static void ownGroup(gpointer data);
 static int indexAt(PangoLayout *layout, int x, int y);
 static gboolean onEvents(gint fd, GIOCondition condition, gpointer data);
 static gchar *readLinks(const char *text, GArray *links, GError **error);
+static void setStrut(Display *display, Window win, int bottom, int width, int height);
 static void draw(struct bar *bar, const char *text);
 static void onClick(struct bar *bar, guint button, int x, int y);
 static gboolean onTick(gpointer data);
@@ -236,6 +238,20 @@ static gchar *readLinks(const char *text, GArray *links, GError **error)
   return g_string_free(parse.markup, !ok);
 }
 
+/* The strut: the strip at the top or bottom, as high as the bar, that window managers keep free of other windows */
+static void setStrut(Display *display, Window win, int bottom, int width, int height)
+{
+  /* left, right, top, bottom, then where each runs: left_start_y, left_end_y, right_start_y, right_end_y,
+   * top_start_x, top_end_x, bottom_start_x, bottom_end_x */
+  long strut[12] = {0};
+  strut[bottom ? 3 : 2] = height;
+  strut[bottom ? 11 : 9] = width - 1;
+  XChangeProperty(display, win, XInternAtom(display, "_NET_WM_STRUT_PARTIAL", False), XA_CARDINAL, 32,
+    PropModeReplace, (unsigned char *)strut, 12);
+  XChangeProperty(display, win, XInternAtom(display, "_NET_WM_STRUT", False), XA_CARDINAL, 32,
+    PropModeReplace, (unsigned char *)strut, 4); /* the first four, for older window managers */
+}
+
 /* The bar is as high as the text: the background, then the text, drawn in a group and copied in one go, so it does not flicker */
 static void draw(struct bar *bar, const char *text)
 {
@@ -269,6 +285,7 @@ static void draw(struct bar *bar, const char *text)
     XMoveResizeWindow(display, bar->win, 0, bar->bottom ? DisplayHeight(display, screen) - height : 0,
       (unsigned int)DisplayWidth(display, screen), (unsigned int)height);
     cairo_xlib_surface_set_size(cairo_get_target(bar->cr), DisplayWidth(display, screen), height);
+    setStrut(display, bar->win, bar->bottom, DisplayWidth(display, screen), height);
   }
 
   cairo_push_group(bar->cr);
@@ -374,6 +391,7 @@ int main(int argc, char *argv[])
   int width = 0;
   XVisualInfo vinfo;
   XSetWindowAttributes wa = {0};
+  Atom dock = None;
   cairo_surface_t *surface = NULL;
   PangoFontDescription *font = NULL;
   PangoTabArray *tabs = NULL;
@@ -413,16 +431,19 @@ int main(int argc, char *argv[])
     fputs("doomy: the X server has no 32 bit visual.\n", stderr);
     return EXIT_FAILURE;
   }
-  wa.override_redirect = True;
   wa.colormap = XCreateColormap(bar.display, RootWindow(bar.display, screen), vinfo.visual, AllocNone);
   /* 1 pixel high until draw() knows how high the text is */
   bar.win = XCreateWindow(bar.display, RootWindow(bar.display, screen), 0, 0, (unsigned int)width, 1U, 0,
-    32, InputOutput, vinfo.visual, CWOverrideRedirect | CWColormap | CWBorderPixel | CWBackPixel, &wa);
+    32, InputOutput, vinfo.visual, CWColormap | CWBorderPixel | CWBackPixel, &wa);
   if (!bar.win)
   {
     fputs("doomy: cannot create the window.\n", stderr);
     return EXIT_FAILURE;
   }
+  /* a dock: window managers do not tile it or give it a frame, keep it on every desktop, and keep its strut free */
+  dock = XInternAtom(bar.display, "_NET_WM_WINDOW_TYPE_DOCK", False);
+  XChangeProperty(bar.display, bar.win, XInternAtom(bar.display, "_NET_WM_WINDOW_TYPE", False), XA_ATOM, 32,
+    PropModeReplace, (unsigned char *)&dock, 1);
   XSelectInput(bar.display, bar.win, ButtonPressMask);
   XMapWindow(bar.display, bar.win);
 

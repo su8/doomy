@@ -1,6 +1,6 @@
 #!/bin/sh
 # smoke test: run doomy on a virtual X server with every kind of input and option,
-# and check how it ends. Needs: Xvfb and xdotool
+# and check how it ends. Needs: Xvfb, xdotool and xprop
 set -u
 BIN=${1:-./doomy}
 export DISPLAY=${SMOKE_DISPLAY:-:99} # another display: SMOKE_DISPLAY=:98 make check
@@ -72,6 +72,18 @@ kill $P; wait $P 2>/dev/null; pkill -f '^sleep 31337'
 echo '<a>no href</a>' > "$F";                                  alive "a link without href shows its error"
 echo '<a href="x"><a href="y">nested</a></a>' > "$F";          alive "a link in a link with the same button shows its error"
 echo '<a href="x" button="9">nine</a>' > "$F";                 alive "button=\"9\" shows its error"
+
+# a dock window with a strut as high as the bar, at the top or the bottom: window managers keep that strip free
+dock() { # OPTION...: the window type and the strut's top and bottom
+  "$BIN" "$@" 2>/dev/null & P=$!; sleep 1.5
+  w=$(xdotool search --name '' 2>/dev/null | while read -r id; do xprop -id "$id" _NET_WM_WINDOW_TYPE 2>/dev/null | grep -q DOCK && echo "$id"; done | head -1)
+  h=$(xdotool getwindowgeometry --shell "$w" | sed -n 's/^HEIGHT=//p')
+  echo "$(xprop -id "$w" _NET_WM_WINDOW_TYPE | sed 's/.*= //') $(xprop -id "$w" _NET_WM_STRUT_PARTIAL | cut -d, -f3,4 | tr -d ' ' | sed "s/$h/H/g")"
+  kill $P; wait $P 2>/dev/null
+}
+echo text > "$F"
+expect "a dock, its strut at the top as high as the bar" "$(dock)" "_NET_WM_WINDOW_TYPE_DOCK H,0"
+expect "with --bottom, its strut at the bottom" "$(dock --bottom)" "_NET_WM_WINDOW_TYPE_DOCK 0,H"
 
 # deleting the file is how doomy is stopped
 timeout 5 "$BIN" 2>/dev/null & P=$!; sleep 1.5; rm "$F"; wait $P

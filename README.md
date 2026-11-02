@@ -56,6 +56,7 @@ doomy &
 doomy reads the first line of `$XDG_RUNTIME_DIR/doomy.txt`, a folder only you can write to (`$XDG_CACHE_HOME/doomy.txt`, or `~/.cache/doomy.txt`, when it is not set).
 
 - The bar is as high as the text (about 17 pixels with `Sans 9`) and as wide as the screen.
+- It is a dock window: window managers keep its strip free (its strut) and do not tile it.
 - An empty file gives an empty bar.
 - Deleting the file stops doomy.
 
@@ -197,7 +198,7 @@ Its README shows a loop that puts that line into doomy's file.
 
 ## Testing
 
-The smoke test runs doomy on a virtual X server and needs `Xvfb` and `xdotool`, which clicks the bar:
+The smoke test runs doomy on a virtual X server and needs `Xvfb`, `xdotool`, which clicks the bar, and `xprop`:
 
 ```sh
 make check                     # run the smoke test
