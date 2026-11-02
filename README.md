@@ -2,7 +2,7 @@
 
 ![doomy](https://raw.githubusercontent.com/su8/hellxcb/refs/heads/master/hellxcb.png)
 
-Dead simple X11 bar. Every second it draws one line of text that your script writes to a file.
+Dead simple X11 bar. It draws one line of text that your script writes to a file, again as soon as the file changes.
 
 The bar in the picture above runs on [hellxcb](https://github.com/su8/hellxcb), with its text from [pinky-bar](https://github.com/su8/pinky-bar).
 

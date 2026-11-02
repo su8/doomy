@@ -73,6 +73,15 @@ echo '<a>no href</a>' > "$F";                                  alive "a link wit
 echo '<a href="x"><a href="y">nested</a></a>' > "$F";          alive "a link in a link with the same button shows its error"
 echo '<a href="x" button="9">nine</a>' > "$F";                 alive "button=\"9\" shows its error"
 
+# a change shows at once, not at a next second: a new link is there 0.1 seconds later, swapped in with mv or written over
+printf '<a href="touch %s.old">xxxxxxxxxxxx</a>\n' "$C" > "$F"
+"$BIN" 2>/dev/null & P=$!; sleep 1.5
+printf '<a href="touch %s.mv">xxxxxxxxxxxx</a>\n' "$C" > "$F.tmp"; mv "$F.tmp" "$F"; sleep 0.1
+xdotool mousemove 5 5 click 1; sleep 0.3; expect "a file swapped in with mv shows at once" "$(cd "$XDG_RUNTIME_DIR" && ls clicked.old clicked.mv 2>/dev/null)" clicked.mv
+printf '<a href="touch %s.gt">xxxxxxxxxxxx</a>\n' "$C" > "$F"; sleep 0.1
+xdotool mousemove 5 5 click 1; sleep 0.3; expect "a file written over shows at once" "$(cd "$XDG_RUNTIME_DIR" && ls clicked.gt 2>/dev/null)" clicked.gt
+kill $P; wait $P 2>/dev/null
+
 # a dock window with a strut as high as the bar, at the top or the bottom: window managers keep that strip free
 dock() { # OPTION...: the window type and the strut's top and bottom
   "$BIN" "$@" 2>/dev/null & P=$!; sleep 1.5

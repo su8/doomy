@@ -24,6 +24,7 @@ MA 02110-1301, USA.
 #include <unistd.h>
 #include <sys/wait.h>
 #include <glib-unix.h>
+#include <gio/gio.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/Xatom.h>
@@ -76,7 +77,8 @@ static gchar *readLinks(const char *text, GArray *links, GError **error);
 static void setStrut(Display *display, Window win, int bottom, int width, int height);
 static void draw(struct bar *bar, const char *text);
 static void onClick(struct bar *bar, guint button, int x, int y);
-static gboolean onTick(gpointer data);
+static gboolean redraw(struct bar *bar);
+static void onChange(GFileMonitor *monitor, GFile *file, GFile *other, GFileMonitorEvent change, gpointer data);
 
 static void onStart(GMarkupParseContext *context, const gchar *name, const gchar **names, const gchar **values, gpointer data, GError **error)
 {
@@ -205,7 +207,7 @@ static int indexAt(PangoLayout *layout, int x, int y)
   return x * PANGO_SCALE < box.x || x * PANGO_SCALE >= box.x + box.width ? -1 : index;
 }
 
-/* Clicks, as soon as they come */
+/* Clicks, as soon as they come, and a redraw when a covered part of the bar shows again */
 static gboolean onEvents(gint fd, GIOCondition condition, gpointer data)
 {
   struct bar *bar = data;
@@ -218,6 +220,10 @@ static gboolean onEvents(gint fd, GIOCondition condition, gpointer data)
     if (ButtonPress == event.type)
     {
       onClick(bar, event.xbutton.button, event.xbutton.x, event.xbutton.y);
+    }
+    else if (Expose == event.type && !event.xexpose.count && !redraw(bar))
+    {
+      break;
     }
   }
   return G_SOURCE_CONTINUE;
@@ -357,22 +363,33 @@ static void onClick(struct bar *bar, guint button, int x, int y)
   g_child_watch_add(pid, onExit, popup);
 }
 
-/* Every second: draw the first line of the file. Deleting the file is how doomy is stopped */
-static gboolean onTick(gpointer data)
+/* Draw the first line of the file. Deleting the file is how doomy is stopped: FALSE then */
+static gboolean redraw(struct bar *bar)
 {
-  struct bar *bar = data;
   gchar *text = NULL;
   if (!g_file_get_contents(bar->path, &text, NULL, NULL))
   {
     fprintf(stderr, "doomy: couldn't read %s, exiting.\n", bar->path);
     g_main_loop_quit(bar->loop);
-    return G_SOURCE_REMOVE;
+    return FALSE;
   }
   text[strcspn(text, "\r\n")] = '\0';   /* handle CRLF files too */
   draw(bar, text);
   g_free(text);
-  onEvents(0, G_IO_IN, bar); /* Xlib may have read events while drawing, which the socket no longer shows */
-  return G_SOURCE_CONTINUE;
+  return TRUE;
+}
+
+/* The file changed, was replaced (mv) or deleted: draw it at once */
+static void onChange(GFileMonitor *monitor, GFile *file, GFile *other, GFileMonitorEvent change, gpointer data)
+{
+  (void)monitor;
+  (void)file;
+  (void)other;
+  (void)change;
+  if (redraw(data))
+  {
+    onEvents(0, G_IO_IN, data); /* Xlib may have read events while drawing, which the socket no longer shows */
+  }
 }
 
 int main(int argc, char *argv[])
@@ -392,13 +409,15 @@ int main(int argc, char *argv[])
   XVisualInfo vinfo;
   XSetWindowAttributes wa = {0};
   Atom dock = None;
+  GFile *file = NULL;
+  GFileMonitor *monitor = NULL;
   cairo_surface_t *surface = NULL;
   PangoFontDescription *font = NULL;
   PangoTabArray *tabs = NULL;
 
   options = g_option_context_new(NULL);
   g_option_context_set_summary(options,
-    "Every second, draw the first line of $XDG_RUNTIME_DIR/doomy.txt as a bar.\n"
+    "Draw the first line of $XDG_RUNTIME_DIR/doomy.txt as a bar, again whenever it changes.\n"
     "The line is Pango markup. Tabs split it: left<TAB>centre<TAB>right.\n"
     "A left click on <a href=\"COMMAND\">text</a> runs COMMAND, a second click closes it;\n"
     "<a href=\"COMMAND\" button=\"N\"> for button N: 2 middle, 3 right, 4 and 5 the wheel.");
@@ -444,7 +463,7 @@ int main(int argc, char *argv[])
   dock = XInternAtom(bar.display, "_NET_WM_WINDOW_TYPE_DOCK", False);
   XChangeProperty(bar.display, bar.win, XInternAtom(bar.display, "_NET_WM_WINDOW_TYPE", False), XA_ATOM, 32,
     PropModeReplace, (unsigned char *)&dock, 1);
-  XSelectInput(bar.display, bar.win, ButtonPressMask);
+  XSelectInput(bar.display, bar.win, ButtonPressMask | ExposureMask);
   XMapWindow(bar.display, bar.win);
 
   surface = cairo_xlib_surface_create(bar.display, bar.win, vinfo.visual, width, 1);
@@ -469,12 +488,22 @@ int main(int argc, char *argv[])
   g_array_set_clear_func(bar.links, clearLink);
   bar.running = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
   bar.loop = g_main_loop_new(NULL, FALSE);
-  if (onTick(&bar))
+  /* no rate limit: a change is drawn as soon as it is written */
+  file = g_file_new_for_path(bar.path);
+  if (!(monitor = g_file_monitor_file(file, G_FILE_MONITOR_WATCH_MOVES, NULL, &error)))
   {
-    g_timeout_add_seconds(1, onTick, &bar);
+    fprintf(stderr, "doomy: cannot watch %s: %s\n", bar.path, error->message);
+    return EXIT_FAILURE;
+  }
+  g_file_monitor_set_rate_limit(monitor, 0);
+  g_signal_connect(monitor, "changed", G_CALLBACK(onChange), &bar);
+  if (redraw(&bar))
+  {
     g_unix_fd_add(ConnectionNumber(bar.display), G_IO_IN, onEvents, &bar);
     g_main_loop_run(bar.loop);
   }
+  g_object_unref(monitor);
+  g_object_unref(file);
 
   g_array_unref(bar.links);
   g_hash_table_unref(bar.running);
