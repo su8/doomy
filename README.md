@@ -49,7 +49,7 @@ done &
 doomy &
 ```
 
-`script.sh` in this repository holds the same loop.
+`script.sh` in this repository holds the same loop, with a full bar to start from: see [Links](#links).
 
 ## Usage
 
@@ -132,6 +132,32 @@ echo '<a href="pavucontrol"><a button="4" href="pactl set-sink-volume @DEFAULT_S
 - Open the pop-up away from the link's text: on top of it, the second click lands on the pop-up instead.
 - The second click closes what the first one started. A command that hands over to a program already running and ends, such as `firefox URL` with Firefox open, or one ending in `&`, has nothing left to close: the next click runs it again.
 - A link in a link needs another button; an `<a>` without `href`, or a `button` that is not 1 to 5, shows its error in the bar.
+
+`script.sh` in this repository is a bar to start from, with a pop-up behind each part:
+
+```
+🐮                                                    🌐✗ | 📶80% | 🔌✗ | 🔋41% | 💾792G | ⚙️1.18 | 🧠9.4G | 🔊40% | 01 Nov 18:12
+```
+
+| Part | Shows | A click opens | Other buttons |
+|---|---|---|---|
+| 🐮 | | a fortune from `cowsay` | |
+| 🌐 | IPv6, a red ✗ without | `ip -6 addr` | |
+| 📶 | the Wi-Fi signal | the networks, `nmcli device wifi list` | |
+| 🔌 | wired, a red ✗ when down | `ip -br addr` and `ip route` | |
+| 🔋 | the battery, ⚡ while charging; nothing on a desktop | `upower -i` | |
+| 💾 | free space on `/` | `df -h` | |
+| ⚙️ | the load | `htop` | |
+| 🧠 | memory used | `free -h` | right: `htop` by memory |
+| 🔊 | the volume | the mixer, `pavucontrol` | wheel: louder, quieter |
+| the time | `01 Nov 18:12` | a yad calendar | right: the whole year, `cal -y` |
+
+```sh
+./script.sh
+doomy &
+```
+
+It is for Linux. The 📶 signal needs `iw`; without it, the icon shows alone. The pop-ups need the programs in the table.
 
 Any program works as a pop-up. These are not needed for doomy, only for the links that run them:
 
