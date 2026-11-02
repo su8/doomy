@@ -1,6 +1,6 @@
 #!/bin/sh
 # smoke test: run doomy on a virtual X server with every kind of input and option,
-# and check how it ends. Needs: Xvfb
+# and check how it ends. Needs: Xvfb and xdotool
 set -u
 BIN=${1:-./doomy}
 export DISPLAY=${SMOKE_DISPLAY:-:99} # another display: SMOKE_DISPLAY=:98 make check
@@ -31,6 +31,36 @@ printf 'first\nsecond\n' > "$F";                                    alive "only 
 echo text > "$F"
 alive "see-through background" --background '#282a2e80'
 alive "at the bottom" --bottom --background red
+
+# links: a left click on <a href="COMMAND">text</a> runs COMMAND in a shell, a second click on it closes it and
+# what it started ('sleep; true' keeps the shell waiting, like a script); text that is no link runs nothing
+C=$XDG_RUNTIME_DIR/clicked
+printf 'Battery\t<a href="touch %s.a &amp;&amp; touch %s.b"><b>5:30pm</b></a>\t<a href="sleep 31337; true">Monday</a>\n' "$C" "$C" > "$F"
+"$BIN" 2>/dev/null & P=$!; sleep 1.5
+running() { pgrep -f '^sleep 31337' >/dev/null && echo running || echo stopped; }
+xdotool mousemove 5 5 click 1; sleep 0.3;   expect "a click on text that is no link runs nothing" "$(ls "$XDG_RUNTIME_DIR" | grep -c clicked)" 0
+xdotool mousemove 200 5 click 1; sleep 0.3; expect "a click on a gap runs nothing" "$(ls "$XDG_RUNTIME_DIR" | grep -c clicked)" 0
+xdotool mousemove 400 5 click 1; sleep 0.3; expect "a click on a link runs its command, &amp;&amp; as &&" "$(ls "$XDG_RUNTIME_DIR" | grep -c clicked)" 2
+xdotool mousemove 795 5 click 1; sleep 0.3; expect "a click on a link opens its command" "$(running)" running
+xdotool mousemove 795 5 click 1; sleep 0.3; expect "a second click closes it, the shell's child too" "$(running)" stopped
+xdotool mousemove 795 5 click 1; sleep 0.3; expect "a third click opens it again" "$(running)" running
+kill $P; wait $P 2>/dev/null; pkill -f '^sleep 31337'
+# where a link is counts the text as Pango draws it: 8 &amp; are 8 bytes, not 40, or the link falls past the text
+printf '&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;<a href="touch %s.entity">LINKLINKLINK</a>\n' "$C" > "$F"
+"$BIN" 2>/dev/null & P=$!; sleep 1.5
+xdotool mousemove 100 5 click 1; sleep 0.3; expect "a link after entities is where it is drawn" "$([ -e "$C.entity" ] && echo ran)" ran
+kill $P; wait $P 2>/dev/null
+
+# button="N": links in links, one for each mouse button, on the same text
+printf '<a href="touch %s.1"><a button="3" href="touch %s.3"><a button="4" href="touch %s.4">Volume</a></a></a>\n' "$C" "$C" "$C" > "$F"
+"$BIN" 2>/dev/null & P=$!; sleep 1.5
+for b in 1 3 4 2; do xdotool mousemove 10 5 click $b; sleep 0.3; done
+expect "left, right and wheel up run their own link, the middle button none" "$(cd "$XDG_RUNTIME_DIR" && ls clicked.[1-5] | tr '\n' ' ')" "clicked.1 clicked.3 clicked.4 "
+kill $P; wait $P 2>/dev/null
+
+echo '<a>no href</a>' > "$F";                                  alive "a link without href shows its error"
+echo '<a href="x"><a href="y">nested</a></a>' > "$F";          alive "a link in a link with the same button shows its error"
+echo '<a href="x" button="9">nine</a>' > "$F";                 alive "button=\"9\" shows its error"
 
 # deleting the file is how doomy is stopped
 timeout 5 "$BIN" 2>/dev/null & P=$!; sleep 1.5; rm "$F"; wait $P
