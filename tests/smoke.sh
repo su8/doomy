@@ -58,6 +58,17 @@ for b in 1 3 4 2; do xdotool mousemove 10 5 click $b; sleep 0.3; done
 expect "left, right and wheel up run their own link, the middle button none" "$(cd "$XDG_RUNTIME_DIR" && ls clicked.[1-5] | tr '\n' ' ')" "clicked.1 clicked.3 clicked.4 "
 kill $P; wait $P 2>/dev/null
 
+# a pop-up that takes a second to close (a trap on TERM), clicked again while it closes: its late exit must not make
+# doomy forget a newer one, or the next click opens another next to it instead of closing it. That click closes the one
+# that is open, or opens one
+printf '<a href="trap &quot;sleep 1; exit&quot; TERM; sleep 31337">xxxxxxxxxxxx</a>\n' > "$F"
+"$BIN" 2>/dev/null & P=$!; sleep 1.5
+xdotool mousemove 5 5 click 1; sleep 0.5
+xdotool click --repeat 2 --delay 100 1; sleep 1.5
+n=$(pgrep -fc '^sleep 31337'); xdotool click 1; sleep 0.5
+expect "after a close and an open at once, a click closes or opens, never a second pop-up" "$n $(pgrep -fc '^sleep 31337')" "$n $((1 - n))"
+kill $P; wait $P 2>/dev/null; pkill -f '^sleep 31337'
+
 echo '<a>no href</a>' > "$F";                                  alive "a link without href shows its error"
 echo '<a href="x"><a href="y">nested</a></a>' > "$F";          alive "a link in a link with the same button shows its error"
 echo '<a href="x" button="9">nine</a>' > "$F";                 alive "button=\"9\" shows its error"

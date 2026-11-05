@@ -15,12 +15,14 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
 MA 02110-1301, USA.
 */
-#define _POSIX_C_SOURCE 200809L /* setpgid, kill */
+#define _POSIX_C_SOURCE 200809L /* setpgid, kill, waitid */
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/wait.h>
 #include <glib-unix.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -173,7 +175,11 @@ static void onExit(GPid pid, gint status, gpointer data)
   struct popup *popup = data;
   (void)status;
   g_spawn_close_pid(pid);
-  g_hash_table_remove(popup->running, popup->command);
+  /* only its own entry: a click may have opened the command again while this one was closing */
+  if (GPOINTER_TO_INT(g_hash_table_lookup(popup->running, popup->command)) == pid)
+  {
+    g_hash_table_remove(popup->running, popup->command);
+  }
   g_free(popup->command);
   g_free(popup);
 }
@@ -309,10 +315,16 @@ static void onClick(struct bar *bar, guint button, int x, int y)
   }
   if ((pid = GPOINTER_TO_INT(g_hash_table_lookup(bar->running, link->href))))
   {
-    /* stop the popup, and forget it: its onExit will still run, but the entry is gone */
-    kill(-pid, SIGTERM);
+    siginfo_t info;
+    memset(&info, 0, sizeof(info));
+    /* still running: close it, and what it started; its onExit forgets it once it is gone. Already exited, with its
+     * onExit still to come: open it again now (WNOWAIT leaves the process for GLib to reap) */
+    if (waitid(P_PID, (id_t)pid, &info, WEXITED | WNOHANG | WNOWAIT) ? errno != ECHILD : !info.si_pid)
+    {
+      kill(-pid, SIGTERM);
+      return;
+    }
     g_hash_table_remove(bar->running, link->href);
-    return;
   }
   argv[2] = link->href;
   if (!g_spawn_async(NULL, argv, NULL, G_SPAWN_DO_NOT_REAP_CHILD, ownGroup, NULL, &pid, &error))
