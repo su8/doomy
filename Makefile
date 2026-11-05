@@ -15,7 +15,7 @@
 #   MA 02110-1301, USA.
 
 # != runs a command; GNU make (4.0 or newer) and BSD make both know it
-PKGS=x11 cairo-xlib pangocairo gio-2.0
+PKGS=x11 xrandr cairo-xlib pangocairo gio-2.0
 DEPS_CFLAGS!=pkg-config --cflags $(PKGS)
 DEPS_LIBS!=pkg-config --libs $(PKGS)
 CPPFLAGS+=$(DEPS_CFLAGS)

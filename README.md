@@ -8,24 +8,24 @@ The bar in the picture above runs on [hellxcb](https://github.com/su8/hellxcb), 
 
 ## Dependencies
 
-A C compiler, `make`, `pkg-config`, `libX11`, `cairo`, `pango` (1.50 or newer) and `glib` with `gio`, which come with pango.
+A C compiler, `make`, `pkg-config`, `libX11`, `libXrandr`, `cairo`, `pango` (1.50 or newer) and `glib` with `gio`, which come with pango.
 
 Debian:
 
 ```sh
-apt install gcc make pkg-config libx11-dev libcairo2-dev libpango1.0-dev
+apt install gcc make pkg-config libx11-dev libxrandr-dev libcairo2-dev libpango1.0-dev
 ```
 
 Fedora:
 
 ```sh
-dnf install gcc make pkgconf libX11-devel cairo-devel pango-devel
+dnf install gcc make pkgconf libX11-devel libXrandr-devel cairo-devel pango-devel
 ```
 
 FreeBSD:
 
 ```sh
-pkg install pkgconf libX11 cairo pango
+pkg install pkgconf libX11 libXrandr cairo pango
 ```
 
 ## Installation
@@ -57,6 +57,7 @@ doomy reads the first line of `$XDG_RUNTIME_DIR/doomy.txt`, a folder only you ca
 
 - The bar is as high as the text (about 17 pixels with `Sans 9`) and as wide as the screen.
 - It is a dock window: window managers keep its strip free (its strut) and do not tile it.
+- Each monitor gets its own bar, with the same line laid out for its width. A monitor plugged in later gets one when doomy starts again.
 - An empty file gives an empty bar.
 - Deleting the file stops doomy.
 
