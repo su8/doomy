@@ -1,6 +1,6 @@
 #!/bin/sh
 # smoke test: run doomy on a virtual X server with every kind of input and option,
-# and check how it ends. Needs: Xvfb and xdotool
+# and check how it ends. Needs: Xvfb, xdotool and xprop
 set -u
 BIN=${1:-./doomy}
 export DISPLAY=${SMOKE_DISPLAY:-:99} # another display: SMOKE_DISPLAY=:98 make check
@@ -58,9 +58,41 @@ for b in 1 3 4 2; do xdotool mousemove 10 5 click $b; sleep 0.3; done
 expect "left, right and wheel up run their own link, the middle button none" "$(cd "$XDG_RUNTIME_DIR" && ls clicked.[1-5] | tr '\n' ' ')" "clicked.1 clicked.3 clicked.4 "
 kill $P; wait $P 2>/dev/null
 
+# a pop-up that takes a second to close (a trap on TERM), clicked again while it closes: its late exit must not make
+# doomy forget a newer one, or the next click opens another next to it instead of closing it. That click closes the one
+# that is open, or opens one
+printf '<a href="trap &quot;sleep 1; exit&quot; TERM; sleep 31337">xxxxxxxxxxxx</a>\n' > "$F"
+"$BIN" 2>/dev/null & P=$!; sleep 1.5
+xdotool mousemove 5 5 click 1; sleep 0.5
+xdotool click --repeat 2 --delay 100 1; sleep 1.5
+n=$(pgrep -fc '^sleep 31337'); xdotool click 1; sleep 0.5
+expect "after a close and an open at once, a click closes or opens, never a second pop-up" "$n $(pgrep -fc '^sleep 31337')" "$n $((1 - n))"
+kill $P; wait $P 2>/dev/null; pkill -f '^sleep 31337'
+
 echo '<a>no href</a>' > "$F";                                  alive "a link without href shows its error"
 echo '<a href="x"><a href="y">nested</a></a>' > "$F";          alive "a link in a link with the same button shows its error"
 echo '<a href="x" button="9">nine</a>' > "$F";                 alive "button=\"9\" shows its error"
+
+# a change shows at once, not at a next second: a new link is there 0.1 seconds later, swapped in with mv or written over
+printf '<a href="touch %s.old">xxxxxxxxxxxx</a>\n' "$C" > "$F"
+"$BIN" 2>/dev/null & P=$!; sleep 1.5
+printf '<a href="touch %s.mv">xxxxxxxxxxxx</a>\n' "$C" > "$F.tmp"; mv "$F.tmp" "$F"; sleep 0.1
+xdotool mousemove 5 5 click 1; sleep 0.3; expect "a file swapped in with mv shows at once" "$(cd "$XDG_RUNTIME_DIR" && ls clicked.old clicked.mv 2>/dev/null)" clicked.mv
+printf '<a href="touch %s.gt">xxxxxxxxxxxx</a>\n' "$C" > "$F"; sleep 0.1
+xdotool mousemove 5 5 click 1; sleep 0.3; expect "a file written over shows at once" "$(cd "$XDG_RUNTIME_DIR" && ls clicked.gt 2>/dev/null)" clicked.gt
+kill $P; wait $P 2>/dev/null
+
+# a dock window with a strut as high as the bar, at the top or the bottom: window managers keep that strip free
+dock() { # OPTION...: the window type and the strut's top and bottom
+  "$BIN" "$@" 2>/dev/null & P=$!; sleep 1.5
+  w=$(xdotool search --name '' 2>/dev/null | while read -r id; do xprop -id "$id" _NET_WM_WINDOW_TYPE 2>/dev/null | grep -q DOCK && echo "$id"; done | head -1)
+  h=$(xdotool getwindowgeometry --shell "$w" | sed -n 's/^HEIGHT=//p')
+  echo "$(xprop -id "$w" _NET_WM_WINDOW_TYPE | sed 's/.*= //') $(xprop -id "$w" _NET_WM_STRUT_PARTIAL | cut -d, -f3,4 | tr -d ' ' | sed "s/$h/H/g")"
+  kill $P; wait $P 2>/dev/null
+}
+echo text > "$F"
+expect "a dock, its strut at the top as high as the bar" "$(dock)" "_NET_WM_WINDOW_TYPE_DOCK H,0"
+expect "with --bottom, its strut at the bottom" "$(dock --bottom)" "_NET_WM_WINDOW_TYPE_DOCK 0,H"
 
 # deleting the file is how doomy is stopped
 timeout 5 "$BIN" 2>/dev/null & P=$!; sleep 1.5; rm "$F"; wait $P

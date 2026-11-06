@@ -15,15 +15,20 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
 MA 02110-1301, USA.
 */
-#define _POSIX_C_SOURCE 200809L /* setpgid, kill */
+#define _POSIX_C_SOURCE 200809L /* setpgid, kill, waitid */
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/wait.h>
 #include <glib-unix.h>
+#include <gio/gio.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/Xatom.h>
+#include <X11/extensions/Xrandr.h>
 #include <cairo-xlib.h>
 #include <pango/pangocairo.h>
 
@@ -36,20 +41,28 @@ struct link
   guint button; /* X's mouse buttons: 1 left (without button=), 2 middle, 3 right, 4 and 5 the wheel up and down */
 };
 
+/* The bar on one monitor: each monitor has one, all draw the same line */
+struct output
+{
+  Window win;
+  cairo_t *cr;
+  PangoLayout *layout; /* laid out for this monitor's width, so it also says where a click on this bar is */
+  int x, y, width, height; /* the monitor, in the whole screen */
+  int barHeight; /* follows the text */
+};
+
 struct bar
 {
   GMainLoop *loop;
   gchar *path;
-  GArray *links;       /* of the line on the bar */
+  GArray *links;       /* of the line, where they are in its text: the same on every monitor */
   GHashTable *running; /* the commands of links that still run, with their process ids: the next click closes them */
   Display *display;
-  Window win;
-  cairo_t *cr;
-  PangoLayout *layout;
+  struct output *outputs;
+  int count;
   PangoColor bg;
   guint16 alpha;
   gboolean bottom;
-  int height; /* follows the text */
 };
 
 /* Reading the line: <a> goes into the links, everything else on to Pango as it was */
@@ -70,9 +83,13 @@ static void ownGroup(gpointer data);
 static int indexAt(PangoLayout *layout, int x, int y);
 static gboolean onEvents(gint fd, GIOCondition condition, gpointer data);
 static gchar *readLinks(const char *text, GArray *links, GError **error);
+static void setStrut(Display *display, const struct output *out, int bottom);
+static void paint(struct bar *bar, struct output *out, const char *markup, const char *message);
 static void draw(struct bar *bar, const char *text);
-static void onClick(struct bar *bar, guint button, int x, int y);
-static gboolean onTick(gpointer data);
+static void onClick(struct bar *bar, const struct output *out, guint button, int x, int y);
+static void openOutput(Display *display, struct output *out, XVisualInfo *vinfo, Colormap colormap);
+static gboolean redraw(struct bar *bar);
+static void onChange(GFileMonitor *monitor, GFile *file, GFile *other, GFileMonitorEvent change, gpointer data);
 
 static void onStart(GMarkupParseContext *context, const gchar *name, const gchar **names, const gchar **values, gpointer data, GError **error)
 {
@@ -173,7 +190,11 @@ static void onExit(GPid pid, gint status, gpointer data)
   struct popup *popup = data;
   (void)status;
   g_spawn_close_pid(pid);
-  g_hash_table_remove(popup->running, popup->command);
+  /* only its own entry: a click may have opened the command again while this one was closing */
+  if (GPOINTER_TO_INT(g_hash_table_lookup(popup->running, popup->command)) == pid)
+  {
+    g_hash_table_remove(popup->running, popup->command);
+  }
   g_free(popup->command);
   g_free(popup);
 }
@@ -197,19 +218,27 @@ static int indexAt(PangoLayout *layout, int x, int y)
   return x * PANGO_SCALE < box.x || x * PANGO_SCALE >= box.x + box.width ? -1 : index;
 }
 
-/* Clicks, as soon as they come */
+/* Clicks, as soon as they come, and a redraw when a covered part of the bar shows again */
 static gboolean onEvents(gint fd, GIOCondition condition, gpointer data)
 {
   struct bar *bar = data;
   XEvent event;
+  int i = 0;
   (void)fd;
   (void)condition;
   while (XPending(bar->display))
   {
     XNextEvent(bar->display, &event);
-    if (ButtonPress == event.type)
+    for (i = 0; ButtonPress == event.type && i < bar->count; i++)
     {
-      onClick(bar, event.xbutton.button, event.xbutton.x, event.xbutton.y);
+      if (bar->outputs[i].win == event.xbutton.window)
+      {
+        onClick(bar, &bar->outputs[i], event.xbutton.button, event.xbutton.x, event.xbutton.y);
+      }
+    }
+    if (Expose == event.type && !event.xexpose.count && !redraw(bar))
+    {
+      break;
     }
   }
   return G_SOURCE_CONTINUE;
@@ -230,61 +259,98 @@ static gchar *readLinks(const char *text, GArray *links, GError **error)
   return g_string_free(parse.markup, !ok);
 }
 
-/* The bar is as high as the text: the background, then the text, drawn in a group and copied in one go, so it does not flicker */
-static void draw(struct bar *bar, const char *text)
+/* The strut: the strip at the top or bottom of its monitor, as high as the bar, that window managers keep free of
+ * other windows. It counts from the edge of the whole screen, and runs only along its monitor */
+static void setStrut(Display *display, const struct output *out, int bottom)
 {
-  Display *display = bar->display;
-  int screen = DefaultScreen(display);
-  int height = 0;
-  gchar *markup = NULL;
-  GError *error = NULL;
-
-  g_array_set_size(bar->links, 0);
-  if ((markup = readLinks(text, bar->links, &error)) && pango_parse_markup(markup, -1, 0, NULL, NULL, NULL, &error))
+  /* left, right, top, bottom, then where each runs: left_start_y, left_end_y, right_start_y, right_end_y,
+   * top_start_x, top_end_x, bottom_start_x, bottom_end_x */
+  long strut[12] = {0};
+  if (bottom)
   {
-    pango_layout_set_markup(bar->layout, markup, -1);
+    strut[3] = DisplayHeight(display, DefaultScreen(display)) - (out->y + out->height) + out->barHeight;
+    strut[10] = out->x;
+    strut[11] = out->x + out->width - 1;
   }
   else
   {
-    /* show what is wrong where the text would be */
-    g_array_set_size(bar->links, 0);
-    pango_layout_set_attributes(bar->layout, NULL);
-    pango_layout_set_text(bar->layout, error ? error->message : "doomy: bad markup", -1);
-    g_clear_error(&error);
+    strut[2] = out->y + out->barHeight;
+    strut[8] = out->x;
+    strut[9] = out->x + out->width - 1;
   }
+  XChangeProperty(display, out->win, XInternAtom(display, "_NET_WM_STRUT_PARTIAL", False), XA_CARDINAL, 32,
+    PropModeReplace, (unsigned char *)strut, 12);
+  XChangeProperty(display, out->win, XInternAtom(display, "_NET_WM_STRUT", False), XA_CARDINAL, 32,
+    PropModeReplace, (unsigned char *)strut, 4); /* the first four, for older window managers */
+}
+
+/* One monitor's bar, as high as its text: the background, then the text, drawn in a group and copied in one go, so it
+ * does not flicker. markup is the line, or NULL: then message is drawn, what is wrong with it */
+static void paint(struct bar *bar, struct output *out, const char *markup, const char *message)
+{
+  int height = 0;
+
+  if (markup)
+  {
+    pango_layout_set_markup(out->layout, markup, -1);
+  }
+  else
+  {
+    pango_layout_set_attributes(out->layout, NULL);
+    pango_layout_set_text(out->layout, message, -1);
+  }
+  pango_layout_get_pixel_size(out->layout, NULL, &height);
+  if (height <= 0) height = 1; /* X accepts 0, but then the bar is invisible and unclickable */
+  if (height != out->barHeight)
+  {
+    out->barHeight = height;
+    XMoveResizeWindow(bar->display, out->win, out->x, bar->bottom ? out->y + out->height - height : out->y,
+      (unsigned int)out->width, (unsigned int)height);
+    cairo_xlib_surface_set_size(cairo_get_target(out->cr), out->width, height);
+    setStrut(bar->display, out, bar->bottom);
+  }
+
+  cairo_push_group(out->cr);
+  cairo_set_operator(out->cr, CAIRO_OPERATOR_SOURCE);
+  cairo_set_source_rgba(out->cr, bar->bg.red / 65535.0, bar->bg.green / 65535.0, bar->bg.blue / 65535.0, bar->alpha / 65535.0);
+  cairo_paint(out->cr);
+  cairo_set_operator(out->cr, CAIRO_OPERATOR_OVER);
+  cairo_set_source_rgb(out->cr, 0xb2 / 255.0, 0x94 / 255.0, 0xbb / 255.0); /* #b294bb, unless the markup says otherwise */
+  cairo_move_to(out->cr, 0.0, 0.0);
+  pango_cairo_show_layout(out->cr, out->layout);
+  cairo_pop_group_to_source(out->cr);
+  cairo_set_operator(out->cr, CAIRO_OPERATOR_SOURCE);
+  cairo_paint(out->cr);
+  cairo_surface_flush(cairo_get_target(out->cr));
+}
+
+/* The line on every monitor's bar, read once for all of them; broken markup shows what is wrong with it */
+static void draw(struct bar *bar, const char *text)
+{
+  gchar *markup = NULL;
+  GError *error = NULL;
+  int i = 0;
+
+  g_array_set_size(bar->links, 0);
+  if (!(markup = readLinks(text, bar->links, &error)) || !pango_parse_markup(markup, -1, 0, NULL, NULL, NULL, &error))
+  {
+    g_array_set_size(bar->links, 0);
+    g_clear_pointer(&markup, g_free);
+  }
+  for (i = 0; i < bar->count; i++)
+  {
+    paint(bar, &bar->outputs[i], markup, error ? error->message : "doomy: bad markup");
+  }
+  XFlush(bar->display);
   g_free(markup);
   g_clear_error(&error);
-
-  pango_layout_get_pixel_size(bar->layout, NULL, &height);
-  if (height <= 0) height = 1; /* X accepts 0, but then the bar is invisible and unclickable */
-  if (height != bar->height)
-  {
-    bar->height = height;
-    XMoveResizeWindow(display, bar->win, 0, bar->bottom ? DisplayHeight(display, screen) - height : 0,
-      (unsigned int)DisplayWidth(display, screen), (unsigned int)height);
-    cairo_xlib_surface_set_size(cairo_get_target(bar->cr), DisplayWidth(display, screen), height);
-  }
-
-  cairo_push_group(bar->cr);
-  cairo_set_operator(bar->cr, CAIRO_OPERATOR_SOURCE);
-  cairo_set_source_rgba(bar->cr, bar->bg.red / 65535.0, bar->bg.green / 65535.0, bar->bg.blue / 65535.0, bar->alpha / 65535.0);
-  cairo_paint(bar->cr);
-  cairo_set_operator(bar->cr, CAIRO_OPERATOR_OVER);
-  cairo_set_source_rgb(bar->cr, 0xb2 / 255.0, 0x94 / 255.0, 0xbb / 255.0); /* #b294bb, unless the markup says otherwise */
-  cairo_move_to(bar->cr, 0.0, 0.0);
-  pango_cairo_show_layout(bar->cr, bar->layout);
-  cairo_pop_group_to_source(bar->cr);
-  cairo_set_operator(bar->cr, CAIRO_OPERATOR_SOURCE);
-  cairo_paint(bar->cr);
-  cairo_surface_flush(cairo_get_target(bar->cr));
-  XFlush(display);
 }
 
 /* A click on a link with its button runs its command in a shell; a click on it while that still runs closes it,
  * and what it started, like a pop-up */
-static void onClick(struct bar *bar, guint button, int x, int y)
+static void onClick(struct bar *bar, const struct output *out, guint button, int x, int y)
 {
-  int index = indexAt(bar->layout, x, y);
+  int index = indexAt(out->layout, x, y);
   struct link *link = NULL;
   struct popup *popup = NULL;
   gchar sh[] = "/bin/sh";
@@ -309,10 +375,16 @@ static void onClick(struct bar *bar, guint button, int x, int y)
   }
   if ((pid = GPOINTER_TO_INT(g_hash_table_lookup(bar->running, link->href))))
   {
-    /* stop the popup, and forget it: its onExit will still run, but the entry is gone */
-    kill(-pid, SIGTERM);
+    siginfo_t info;
+    memset(&info, 0, sizeof(info));
+    /* still running: close it, and what it started; its onExit forgets it once it is gone. Already exited, with its
+     * onExit still to come: open it again now (WNOWAIT leaves the process for GLib to reap) */
+    if (waitid(P_PID, (id_t)pid, &info, WEXITED | WNOHANG | WNOWAIT) ? errno != ECHILD : !info.si_pid)
+    {
+      kill(-pid, SIGTERM);
+      return;
+    }
     g_hash_table_remove(bar->running, link->href);
-    return;
   }
   argv[2] = link->href;
   if (!g_spawn_async(NULL, argv, NULL, G_SPAWN_DO_NOT_REAP_CHILD, ownGroup, NULL, &pid, &error))
@@ -328,22 +400,69 @@ static void onClick(struct bar *bar, guint button, int x, int y)
   g_child_watch_add(pid, onExit, popup);
 }
 
-/* Every second: draw the first line of the file. Deleting the file is how doomy is stopped */
-static gboolean onTick(gpointer data)
+/* Draw the first line of the file. Deleting the file is how doomy is stopped: FALSE then */
+static gboolean redraw(struct bar *bar)
 {
-  struct bar *bar = data;
   gchar *text = NULL;
   if (!g_file_get_contents(bar->path, &text, NULL, NULL))
   {
     fprintf(stderr, "doomy: couldn't read %s, exiting.\n", bar->path);
     g_main_loop_quit(bar->loop);
-    return G_SOURCE_REMOVE;
+    return FALSE;
   }
   text[strcspn(text, "\r\n")] = '\0';   /* handle CRLF files too */
   draw(bar, text);
   g_free(text);
-  onEvents(0, G_IO_IN, bar); /* Xlib may have read events while drawing, which the socket no longer shows */
-  return G_SOURCE_CONTINUE;
+  return TRUE;
+}
+
+/* The file changed, was replaced (mv) or deleted: draw it at once */
+static void onChange(GFileMonitor *monitor, GFile *file, GFile *other, GFileMonitorEvent change, gpointer data)
+{
+  (void)monitor;
+  (void)file;
+  (void)other;
+  (void)change;
+  if (redraw(data))
+  {
+    onEvents(0, G_IO_IN, data); /* Xlib may have read events while drawing, which the socket no longer shows */
+  }
+}
+
+/* One monitor's bar: a dock window across the monitor, 1 pixel high until draw() knows how high the text is */
+static void openOutput(Display *display, struct output *out, XVisualInfo *vinfo, Colormap colormap)
+{
+  XSetWindowAttributes wa = {0};
+  Atom dock = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DOCK", False);
+  PangoFontDescription *font = NULL;
+  PangoTabArray *tabs = NULL;
+
+  wa.colormap = colormap;
+  out->win = XCreateWindow(display, RootWindow(display, DefaultScreen(display)), out->x, out->y,
+    (unsigned int)out->width, 1U, 0, 32, InputOutput, vinfo->visual, CWColormap | CWBorderPixel | CWBackPixel, &wa);
+  /* a dock: window managers do not tile it or give it a frame, keep it on every desktop, and keep its strut free */
+  XChangeProperty(display, out->win, XInternAtom(display, "_NET_WM_WINDOW_TYPE", False), XA_ATOM, 32,
+    PropModeReplace, (unsigned char *)&dock, 1);
+  XSelectInput(display, out->win, ButtonPressMask | ExposureMask);
+  XMapWindow(display, out->win);
+
+  out->cr = cairo_create(cairo_xlib_surface_create(display, out->win, vinfo->visual, out->width, 1));
+  cairo_surface_destroy(cairo_get_target(out->cr)); /* out->cr holds it */
+  out->layout = pango_cairo_create_layout(out->cr);
+  /* the font unless the markup says otherwise; without one fontconfig may pick a serif */
+  font = pango_font_description_from_string("Sans 9");
+  pango_layout_set_font_description(out->layout, font);
+  pango_font_description_free(font);
+  /* always left to right: a line that starts in Arabic or Hebrew would swap the left and the right part */
+  pango_context_set_base_dir(pango_layout_get_context(out->layout), PANGO_DIRECTION_LTR);
+  pango_layout_set_auto_dir(out->layout, FALSE);
+  pango_layout_context_changed(out->layout);
+  /* left<TAB>centre<TAB>right: the first tab centres the text after it on the monitor, the second puts it at its right */
+  tabs = pango_tab_array_new(2, TRUE);
+  pango_tab_array_set_tab(tabs, 0, PANGO_TAB_CENTER, out->width / 2);
+  pango_tab_array_set_tab(tabs, 1, PANGO_TAB_RIGHT, out->width);
+  pango_layout_set_tabs(out->layout, tabs);
+  pango_tab_array_free(tabs);
 }
 
 int main(int argc, char *argv[])
@@ -359,16 +478,16 @@ int main(int argc, char *argv[])
   GOptionContext *options = NULL;
   GError *error = NULL;
   int screen = 0;
-  int width = 0;
+  int i = 0;
   XVisualInfo vinfo;
-  XSetWindowAttributes wa = {0};
-  cairo_surface_t *surface = NULL;
-  PangoFontDescription *font = NULL;
-  PangoTabArray *tabs = NULL;
+  Colormap colormap = 0;
+  XRRMonitorInfo *monitors = NULL;
+  GFile *file = NULL;
+  GFileMonitor *monitor = NULL;
 
   options = g_option_context_new(NULL);
   g_option_context_set_summary(options,
-    "Every second, draw the first line of $XDG_RUNTIME_DIR/doomy.txt as a bar.\n"
+    "Draw the first line of $XDG_RUNTIME_DIR/doomy.txt as a bar, again whenever it changes.\n"
     "The line is Pango markup. Tabs split it: left<TAB>centre<TAB>right.\n"
     "A left click on <a href=\"COMMAND\">text</a> runs COMMAND, a second click closes it;\n"
     "<a href=\"COMMAND\" button=\"N\"> for button N: 2 middle, 3 right, 4 and 5 the wheel.");
@@ -394,64 +513,65 @@ int main(int argc, char *argv[])
     return EXIT_FAILURE;
   }
   screen = DefaultScreen(bar.display);
-  width = DisplayWidth(bar.display, screen);
   /* a window with an alpha channel: an opaque colour is solid, one with alpha is see-through when a compositor runs */
   if (!XMatchVisualInfo(bar.display, screen, 32, TrueColor, &vinfo))
   {
     fputs("doomy: the X server has no 32 bit visual.\n", stderr);
     return EXIT_FAILURE;
   }
-  wa.override_redirect = True;
-  wa.colormap = XCreateColormap(bar.display, RootWindow(bar.display, screen), vinfo.visual, AllocNone);
-  /* 1 pixel high until draw() knows how high the text is */
-  bar.win = XCreateWindow(bar.display, RootWindow(bar.display, screen), 0, 0, (unsigned int)width, 1U, 0,
-    32, InputOutput, vinfo.visual, CWOverrideRedirect | CWColormap | CWBorderPixel | CWBackPixel, &wa);
-  if (!bar.win)
+  colormap = XCreateColormap(bar.display, RootWindow(bar.display, screen), vinfo.visual, AllocNone);
+  /* one bar for each monitor, from XRandR; the whole screen when it names none.
+   * shortcut: the monitors are read once, a monitor plugged in later gets its bar when doomy starts again */
+  monitors = XRRGetMonitors(bar.display, RootWindow(bar.display, screen), True, &bar.count);
+  if (!monitors || bar.count < 1)
   {
-    fputs("doomy: cannot create the window.\n", stderr);
-    return EXIT_FAILURE;
+    bar.count = 0;
   }
-  XSelectInput(bar.display, bar.win, ButtonPressMask);
-  XMapWindow(bar.display, bar.win);
-
-  surface = cairo_xlib_surface_create(bar.display, bar.win, vinfo.visual, width, 1);
-  bar.cr = cairo_create(surface);
-  bar.layout = pango_cairo_create_layout(bar.cr);
-  /* the font unless the markup says otherwise; without one fontconfig may pick a serif */
-  font = pango_font_description_from_string("Sans 9");
-  pango_layout_set_font_description(bar.layout, font);
-  pango_font_description_free(font);
-  /* always left to right: a line that starts in Arabic or Hebrew would swap the left and the right part */
-  pango_context_set_base_dir(pango_layout_get_context(bar.layout), PANGO_DIRECTION_LTR);
-  pango_layout_set_auto_dir(bar.layout, FALSE);
-  pango_layout_context_changed(bar.layout);
-  /* left<TAB>centre<TAB>right: the first tab centres the text after it in the bar, the second puts it at the right */
-  tabs = pango_tab_array_new(2, TRUE);
-  pango_tab_array_set_tab(tabs, 0, PANGO_TAB_CENTER, width / 2);
-  pango_tab_array_set_tab(tabs, 1, PANGO_TAB_RIGHT, width);
-  pango_layout_set_tabs(bar.layout, tabs);
-  pango_tab_array_free(tabs);
+  bar.outputs = g_new0(struct output, MAX(bar.count, 1));
+  for (i = 0; i < MAX(bar.count, 1); i++)
+  {
+    bar.outputs[i].x = bar.count ? monitors[i].x : 0;
+    bar.outputs[i].y = bar.count ? monitors[i].y : 0;
+    bar.outputs[i].width = bar.count ? monitors[i].width : DisplayWidth(bar.display, screen);
+    bar.outputs[i].height = bar.count ? monitors[i].height : DisplayHeight(bar.display, screen);
+    openOutput(bar.display, &bar.outputs[i], &vinfo, colormap);
+  }
+  bar.count = MAX(bar.count, 1);
+  XRRFreeMonitors(monitors);
 
   bar.links = g_array_new(FALSE, TRUE, sizeof(struct link));
   g_array_set_clear_func(bar.links, clearLink);
   bar.running = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
   bar.loop = g_main_loop_new(NULL, FALSE);
-  if (onTick(&bar))
+  /* no rate limit: a change is drawn as soon as it is written */
+  file = g_file_new_for_path(bar.path);
+  if (!(monitor = g_file_monitor_file(file, G_FILE_MONITOR_WATCH_MOVES, NULL, &error)))
   {
-    g_timeout_add_seconds(1, onTick, &bar);
+    fprintf(stderr, "doomy: cannot watch %s: %s\n", bar.path, error->message);
+    return EXIT_FAILURE;
+  }
+  g_file_monitor_set_rate_limit(monitor, 0);
+  g_signal_connect(monitor, "changed", G_CALLBACK(onChange), &bar);
+  if (redraw(&bar))
+  {
     g_unix_fd_add(ConnectionNumber(bar.display), G_IO_IN, onEvents, &bar);
     g_main_loop_run(bar.loop);
   }
+  g_object_unref(monitor);
+  g_object_unref(file);
 
   g_array_unref(bar.links);
   g_hash_table_unref(bar.running);
   g_main_loop_unref(bar.loop);
   g_free(bar.path);
-  g_object_unref(bar.layout);
-  cairo_destroy(bar.cr);
-  cairo_surface_destroy(surface);
-  XDestroyWindow(bar.display, bar.win);
-  XFreeColormap(bar.display, wa.colormap);
+  for (i = 0; i < bar.count; i++)
+  {
+    g_object_unref(bar.outputs[i].layout);
+    cairo_destroy(bar.outputs[i].cr);
+    XDestroyWindow(bar.display, bar.outputs[i].win);
+  }
+  g_free(bar.outputs);
+  XFreeColormap(bar.display, colormap);
   XCloseDisplay(bar.display);
   return EXIT_SUCCESS;
 }
